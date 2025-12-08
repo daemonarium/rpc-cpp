@@ -98,14 +98,9 @@ namespace serialization {
       serialize_members<T, W, typename [:std::meta::type_of(base):]>(writer, value);
     };
     [:expand(std::meta::nonstatic_data_members_of(^^B, std::meta::access_context::unchecked())):] >> [&]<auto dm> {
-      bool ignore = false;
-      [:serialization::expand(std::meta::annotations_of(dm)):] >> [&]<auto a> {          
-        if constexpr(std::meta::type_of(a) == ^^serialization::policy) {
-          ignore = true;
-        }
-      };
-      if(ignore) return; 
-      serialize(writer, value.[:dm:]);        
+      if constexpr(!is_member_ignored(dm)) {
+        serialize(writer, value.[:dm:]);        
+      }
     };    
   }
 

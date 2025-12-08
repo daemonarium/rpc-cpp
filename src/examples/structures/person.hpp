@@ -42,7 +42,11 @@ void print_people(const std::vector<std::shared_ptr<Person>>& people) {
     }
     std::cout << "  Friends: " << std::endl;
     for (const auto& fd : person->friends) {
-      std::cout << "    " << fd->name << std::endl;
+      if(fd) {
+        std::cout << "    " << fd->name << std::endl;
+      } else {
+        std::cout << "    nullptr" << std::endl;
+      }
     }
   }
 }

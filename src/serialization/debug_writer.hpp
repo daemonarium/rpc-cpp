@@ -58,6 +58,10 @@ namespace serialization {
       template <typename T>
       void write_pointer(std::shared_ptr<T> value, WriteLater write_later) {
         stream_ << std::string(indent_, ' ') << "writePointer " << value << std::endl;
+        if(!value) {
+          stream_ << std::string(indent_+2, ' ') << "pointer is null - writing 0" << std::endl;
+          return;
+        }
         auto existing = std::find(written_pointers_.begin(), written_pointers_.end(), value);
         if (existing != written_pointers_.end()) {
           size_t index = std::distance(written_pointers_.begin(), existing);
@@ -78,7 +82,7 @@ namespace serialization {
         }
         size_t index = written_pointers_.size() + write_later_.size();
         stream_ << std::string(indent_+2, ' ') << "pointer not written - writing future index: "
-          << index << std::endl;          
+          << (index + 1) << std::endl;          
         write_later_.push_back({value, write_later});
       }
 

@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <exception>
+#include "type_concepts.hpp"
 
 namespace serialization {
 

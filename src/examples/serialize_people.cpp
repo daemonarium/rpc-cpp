@@ -35,6 +35,7 @@ int main(int argc, char** argv) {
   };
 
   john->friends.push_back(jane);
+  john->friends.push_back(nullptr);
   jane->friends.push_back(john);
   
   std::vector<std::shared_ptr<Person>> people = { john, jane };

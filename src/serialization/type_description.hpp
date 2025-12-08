@@ -29,8 +29,7 @@ namespace serialization {
     { r.get_type(std::type_index(typeid(int))) } -> std::same_as<std::shared_ptr<type_description>>;
   };
 
-
-  class type_description {
+  class [[=serialization::dynamic()]] type_description {
     public:
 
       enum class Kind {
@@ -44,8 +43,9 @@ namespace serialization {
         Enum = 7,
         Array = 8,
         Object = 9,
-        Pointer = 10,
-        Map = 11,
+        DynamicObject = 10,
+        Pointer = 11,
+        Map = 12,
         Function = 16,
         Method = 17,        
       };
@@ -157,7 +157,7 @@ namespace serialization {
         func(kind);
         func(members);
       } */
-
+/* 
       template <typename W>
       requires(Writer<W>)
       void serialize(W& writer) {
@@ -215,7 +215,7 @@ namespace serialization {
           serialization::deserialize(reader, item);
         }
       }
-
+ */
       bool operator==(const type_description& other) const {
         if(hash_.has_value() && other.hash_.has_value()) {
           if(hash_.value() != other.hash_.value()) return false;
@@ -230,7 +230,8 @@ namespace serialization {
             os << std::meta::identifier_of(e);
           }
         };
-        if(tc.kind == static_cast<std::uint8_t>(type_description::Kind::Object)) {
+        if(tc.kind == static_cast<std::uint8_t>(type_description::Kind::Object) 
+           || tc.kind == static_cast<std::uint8_t>(type_description::Kind::DynamicObject)) {
           if(tc.bases.size() > 0) os << std::endl<< " with bases:" << std::endl;
           for(const auto& base : tc.bases) {
             os << "  " << base->getName() << std::endl;
@@ -277,7 +278,9 @@ namespace serialization {
 
 
       friend class type_registry;
+      [[=serialization::policy::ignore]]
       std::optional<std::uint32_t> hash_;
+      [[=serialization::policy::ignore]]
       std::type_index type_index_;
 
       inline uint32_t mix_hash(uint32_t hash, uint32_t value) {
@@ -311,6 +314,7 @@ namespace serialization {
         type_description::Kind::Array, 
         nullptr
       );
+      type->type_index_ = std::type_index(typeid(T));
       registry.register_type(type);
       type->item = create(typename T::value_type(), registry);          
       return type;
@@ -328,6 +332,7 @@ namespace serialization {
       std::shared_ptr<type_description> type = registry.get_type(name);
       if(type) return type;
       type = std::make_shared<type_description>(std::string(name), type_description::Kind::Map);
+      type->type_index_ = std::type_index(typeid(T));
       registry.register_type(type);
       type->key = create(typename T::key_type(), registry);
       type->item = create(typename T::value_type(), registry);      
@@ -436,7 +441,7 @@ namespace serialization {
       }      
       std::shared_ptr<type_description> type = registry.get_type(name);
       if(type) return type;
-      type = std::make_shared<type_description>(std::string(name), type_description::Kind::Object);
+      type = std::make_shared<type_description>(std::string(name), is_dynamic(^^T) ? type_description::Kind::DynamicObject : type_description::Kind::Object);
       type->type_index_ = std::type_index(typeid(T));
       registry.register_type(type);
       //describe_members<T, T, R>(type, value, registry); 
@@ -445,17 +450,12 @@ namespace serialization {
         type->bases.push_back(create(typename [:std::meta::type_of(base):](), registry));
       };
 
-      [:expand(std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<auto dm> {
-        bool ignore = false;
-        [:serialization::expand(std::meta::annotations_of(dm)):] >> [&]<auto a> {
-          if constexpr(std::meta::type_of(a) == ^^serialization::policy) {
-            ignore = true;
-          }
-        }; 
-        if(ignore) return;        
-        std::string_view memberName = std::meta::identifier_of(dm);
-        type_description::member m = std::make_pair(std::string(memberName), create(value.[:dm:], registry));
-        type->members.push_back(m);    
+      [:expand(std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<auto dm> {        
+        if constexpr(!is_member_ignored(dm)) {  
+          std::string_view memberName = std::meta::identifier_of(dm);
+          type_description::member m = std::make_pair(std::string(memberName), create(value.[:dm:], registry));
+          type->members.push_back(m);    
+        }
       };
 
       [:serialization::expand(std::meta::members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<std::meta::info member> {  

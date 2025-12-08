@@ -4,13 +4,14 @@
 #include "serialize.hpp"
 #include "deserialize.hpp"
 #include "type_concepts.hpp"
+#include "promise.hpp"
 #include <tuple>
 #include <functional>
 #include <sstream>
 #include <exception>
 #include <set>
 
-#define RPC_SERVER_DEBUG
+//#define RPC_SERVER_DEBUG
 
 namespace serialization {
 
@@ -204,6 +205,10 @@ namespace serialization {
         server.debug_indent(-1);
       }
 
+    private: 
+
+      std::vector<std::function<std::shared_ptr<serialization::promise<void>>(Rd&, Wr&, uint64_t)>> functions_;
+
     public:
 
 /*       template <typename Rt, typename... Args>
@@ -324,9 +329,7 @@ namespace serialization {
         return functions_[function_id](reader, writer, request_id);
       }
 
-    private:     
-
-      std::vector<std::function<std::shared_ptr<serialization::promise<void>>(Rd&, Wr&, uint64_t)>> functions_;
+    private:
 
       template<std::size_t I, typename... Args>
       void deserialize_args(Rd& reader, std::tuple<Args...>& args) {

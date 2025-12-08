@@ -9,7 +9,7 @@
 #include <functional>
 #include <memory>
 
-#define SERIALIZATION_STREAM_WRITER_DEBUG
+//#define SERIALIZATION_STREAM_WRITER_DEBUG
 
 namespace serialization {
 
@@ -116,10 +116,15 @@ namespace serialization {
       template <typename T>
       void write_pointer(std::shared_ptr<T> value, WriteLater write_later) {
         debug("write_pointer %p", value.get());
+        if(!value) {
+          write_svar_int(0); // null = 0
+          return;
+        }
         auto existing = std::find(written_pointers_.begin(), written_pointers_.end(), value);
         if (existing != written_pointers_.end()) {
-          size_t index = std::distance(written_pointers_.begin(), existing);
-          write_svar_int(index - written_pointers_.size());
+          std::int32_t index = std::distance(written_pointers_.begin(), existing);
+          std::int32_t delta = index - written_pointers_.size();
+          write_svar_int(delta); // always negative
           return;
         }
         auto will_be_written = std::find_if(write_later_.begin(), write_later_.end(), 
@@ -128,12 +133,12 @@ namespace serialization {
           }
         );
         if (will_be_written != write_later_.end()) {
-          size_t index = written_pointers_.size() + std::distance(write_later_.begin(), will_be_written);
-          write_svar_int(index - written_pointers_.size());
+          size_t index = std::distance(write_later_.begin(), will_be_written);
+          write_svar_int(index + 1); // always positive
           return;
         }
-        size_t index = written_pointers_.size() + write_later_.size();
-        write_svar_int(index - written_pointers_.size());
+        size_t index = write_later_.size();
+        write_svar_int(index + 1); // always positive
         write_later_.push_back({value, write_later});
       }
 

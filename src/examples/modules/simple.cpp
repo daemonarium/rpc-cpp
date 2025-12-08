@@ -1,16 +1,12 @@
-#include "utils/printHex.hpp"
 #include "serialization/type_registry.hpp"
 #include "serialization/type_description.hpp"
 #include "serialization/rpc_server.hpp"
-#include "serialization/rpc_client.hpp"
 #include "serialization/stream_reader.hpp"
 #include "serialization/stream_writer.hpp"
 
 #include "../structures/simple.hpp"
 
-#include <iostream>
 #include <sstream>
-#include <vector>
 #include <memory>
 
 using rpc_server_type = serialization::rpc_server<serialization::stream_reader, serialization::stream_writer>;
@@ -49,7 +45,10 @@ extern "C" size_t rpc_description(char** buffer) {
   register_all();
   std::ostringstream output_stream;
   serialization::stream_writer writer(output_stream);
-  registry.serialize(writer);
+  writer.register_serialization_function<serialization::type_description>();
+  serialize(writer, registry);
+  writer.write_rest();
+
   *buffer = (char*)malloc(output_stream.str().size());
   memcpy(*buffer, output_stream.str().data(), output_stream.str().size());
   return output_stream.str().size();

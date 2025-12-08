@@ -34,10 +34,10 @@ namespace serialization {
     reader.read_length(length);
     for (std::size_t i = 0; i < length; ++i) {
       typename T::key_type key;
-      typename T::mapped_type value;
+      typename T::mapped_type item_value;
       deserialize(reader, key);
-      deserialize(reader, value);
-      value.insert(std::make_pair(key, value));
+      deserialize(reader, item_value);
+      value.insert(std::make_pair(key, item_value));
     }
     reader.exit_frame();
   }
@@ -104,15 +104,10 @@ namespace serialization {
     [:expand(std::meta::bases_of(^^B, std::meta::access_context::unchecked())):] >> [&]<std::meta::info base> {      
       deserialize_members<T, R, typename [:std::meta::type_of(base):]>(reader, value);
     };
-    [:expand(std::meta::nonstatic_data_members_of(^^B, std::meta::access_context::unchecked())):] >> [&]<auto dm> {      
-      bool ignore = false;
-      [:serialization::expand(std::meta::annotations_of(dm)):] >> [&]<auto a> {          
-        if constexpr(std::meta::type_of(a) == ^^serialization::policy) {
-          ignore = true;
-        }
-      };
-      if(ignore) return; 
-      deserialize(reader, value.[:dm:]);        
+    [:expand(std::meta::nonstatic_data_members_of(^^B, std::meta::access_context::unchecked())):] >> [&]<auto dm> {           
+      if constexpr(!is_member_ignored(dm)) {
+        deserialize(reader, value.[:dm:]);        
+      }
     };    
   }
 

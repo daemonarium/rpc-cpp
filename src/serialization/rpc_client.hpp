@@ -11,7 +11,7 @@
 #include <exception>
 #include <set>
 
-#define RPC_SERVER_DEBUG
+//#define RPC_SERVER_DEBUG
 
 namespace serialization {
 

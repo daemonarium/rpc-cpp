@@ -27,9 +27,19 @@ namespace serialization {
           types_by_name_.insert(std::make_pair(type->getName(), type));
         }           
       }
+      type_registry(const std::vector<std::shared_ptr<type_description>>& types)
+        : types_(types) {
+        reindex();
+      }
       ~type_registry() {}
       
       size_t register_type(std::shared_ptr<type_description> type) {
+        if(types_by_index_.contains(type->type_index_)) {
+          /// find index and return it
+          return std::find_if(types_.begin(), types_.end(), [&](const std::shared_ptr<type_description>& t) {
+            return t->type_index_ == type->type_index_;
+          }) - types_.begin();
+        }
         size_t index = types_.size();                
         types_.push_back(type);
         types_by_index_.insert(std::make_pair(type->type_index_, type));
@@ -60,27 +70,31 @@ namespace serialization {
       template <typename W>
       requires(Writer<W>)
       void serialize(W writer) {
-        writer.write_length(types_.size() - 9);
-        for(int i = 9; i < types_.size(); ++i) {
-          types_[i]->serialize(writer);
-        }
+        serialize(writer, types_);
       }
 
       template <typename R>
       requires(Reader<R>)
-      void deserialize(R reader) {
-        std::size_t size;
-        reader.read_length(size);
-        types_.resize(9 + size);
-        for(std::size_t i = 0; i < size; ++i) {
-          types_[9 + i] = std::make_shared<type_description>();
-          types_[9 + i]->deserialize(reader);
+      void deserialize(R& reader) {
+        deserialize(reader, types_);
+      }
+
+      void reindex() {
+        types_by_index_.clear();
+        types_by_name_.clear();
+        for(const auto& type : types_) {
+          types_by_index_.insert(std::make_pair(type->type_index_, type));
+          types_by_name_.insert(std::make_pair(type->getName(), type));
         }
       }
 
     private:
       std::vector<std::shared_ptr<type_description>> types_;
+
+      [[=serialization::policy::ignore]]
       std::unordered_map<std::type_index, std::shared_ptr<type_description>> types_by_index_;
+      
+      [[=serialization::policy::ignore]]
       std::unordered_map<std::string, std::shared_ptr<type_description>> types_by_name_;
   };
 

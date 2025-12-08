@@ -9,7 +9,9 @@
 #include <functional>
 #include <memory>
 
+#ifndef __EMSCRIPTEN__
 #define SERIALIZATION_STREAM_READER_DEBUG
+#endif
 
 namespace serialization {
 
@@ -114,8 +116,13 @@ namespace serialization {
 
       template <typename T>
       void read_pointer(std::shared_ptr<T>& value, ReadLater read_later) {
-        debug("read_pointer");
+        debug("read_pointer");        
         std::int64_t delta = read_svar_int();
+        debug("  read_pointer delta %d", delta);        
+        if(delta == 0) {
+          value = nullptr;
+          return;
+        }
         if(delta < 0) { /// already read
           size_t index = read_pointers_.size() - delta;
           value = std::static_pointer_cast<T>(read_pointers_[index]);
@@ -125,6 +132,7 @@ namespace serialization {
         AssignAfterRead assign = [&value](std::shared_ptr<void>& data) {
           value = std::static_pointer_cast<T>(data);
         };
+        delta--; // decrement delta, because 0 is null
         if(delta < read_later_.size()) { // will be read later          
           read_later_[delta].first.push_back(assign);
           debug("  read_pointer - will be read later %p", value.get());
@@ -146,6 +154,7 @@ namespace serialization {
       void read_rest() {
         debug("read_rest %zd", read_later_.size());
         while(!read_later_.empty()) {
+          debug("  read_rest - reading later %zd", read_later_.size());
           auto pair = read_later_.front();
           std::shared_ptr<void> result;
           pair.second(result);
@@ -157,8 +166,9 @@ namespace serialization {
         }
       }
 
-    private:
+    public:
       std::istream& stream_;
+    private:
 
       std::vector<std::shared_ptr<void>> read_pointers_;
 
@@ -193,7 +203,6 @@ namespace serialization {
       std::uint64_t read_uvar_int() {
         uint8_t number[9];
         number[0] = stream_.get();
-        uint8_t wtf = number[0] & 0x80;
         if((number[0] & 0x80) == 0) { // 7 bit number encoded in 1 byte
           return number[0];
         } else if ((number[0] & 0x40) == 0) { // 14 bit number encoded in 2 bytes
