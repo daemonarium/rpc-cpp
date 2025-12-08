@@ -19,13 +19,9 @@ namespace serialization {
           std::make_shared<type_description>("string", type_description::Kind::String),
           std::make_shared<type_description>("binary", type_description::Kind::Binary),
           std::make_shared<type_description>("pointer", type_description::Kind::Pointer),
-          std::make_shared<type_description>("map", type_description::Kind::Map)
-        }) {
-
-        for(const auto& type : types_) {
-          types_by_index_.insert(std::make_pair(type->type_index_, type));
-          types_by_name_.insert(std::make_pair(type->getName(), type));
-        }           
+          std::make_shared<type_description>("map", type_description::Kind::Map),          
+        }) {          
+        reindex();
       }
       type_registry(const std::vector<std::shared_ptr<type_description>>& types)
         : types_(types) {

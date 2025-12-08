@@ -34,6 +34,7 @@ class Contract {
     Contract(std::string name, std::string symbol, std::uint8_t decimals, amount totalSupply) 
       : name_(std::move(name)), symbol_(std::move(symbol)), decimals_(decimals), totalSupply_(totalSupply) {}
 
+    [[=serialization::read()]]
     std::string name() const { return name_; }
     std::string symbol() const { return symbol_; } 
     std::uint8_t decimals() const { return decimals_; }

@@ -41,11 +41,15 @@ void register_all() {
   register_rpc(simple);
 }
 
-extern "C" size_t rpc_description(char** buffer) {
+extern "C" size_t rpc_description(char** buffer) {  
+  serialization::type_description::create(serialization::read_annotation(), registry);
   register_all();
   std::ostringstream output_stream;
-  serialization::stream_writer writer(output_stream);
+  serialization::stream_writer writer(output_stream);  
+
   writer.register_serialization_function<serialization::type_description>();
+  writer.register_serialization_function<serialization::read_annotation>();
+
   serialize(writer, registry);
   writer.write_rest();
 

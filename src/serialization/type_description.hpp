@@ -28,7 +28,7 @@ namespace serialization {
     { r.register_type(std::shared_ptr<type_description>(nullptr)) } -> std::same_as<size_t>;
     { r.get_type(std::type_index(typeid(int))) } -> std::same_as<std::shared_ptr<type_description>>;
   };
-
+  
   class [[=serialization::dynamic()]] type_description {
     public:
 
@@ -50,7 +50,20 @@ namespace serialization {
         Method = 17,        
       };
 
-      using member = std::pair<std::string, std::shared_ptr<type_description>>;
+      struct member {
+        std::string name;
+        std::shared_ptr<type_description> type;
+        std::vector<member_annotation_ptr> annotations;
+
+        member() : name(""), type(nullptr), annotations({}) {}
+        member(std::string name, std::shared_ptr<type_description> type, std::vector<member_annotation_ptr> annotations)
+          : name(std::move(name)), type(std::move(type)), annotations(std::move(annotations)) {
+        }
+
+        bool operator==(const member& other) const {
+          return name == other.name && type == other.type && annotations == other.annotations;
+        }
+      };      
       using enumMember = std::pair<std::string, std::uint64_t>;
 
       type_description(type_description&& other) noexcept 
@@ -103,15 +116,15 @@ namespace serialization {
 
       const std::shared_ptr<type_description> getItem() const {
         if(static_cast<Kind>(kind) == Kind::Array) {
-          return members[0].second;
+          return members[0].type;
         }
         return nullptr;
       }
 
       const std::shared_ptr<type_description> getMember(const std::string_view name) const {
         for(const auto& member : members) {
-          if(member.first == name) {
-            return member.second;
+          if(member.name == name) {
+            return member.type;
           }
         }
         return nullptr;
@@ -121,10 +134,10 @@ namespace serialization {
         std::uint32_t hash = 0x9747b28c;        
         hash = mix_hash(hash, kind);
         for (const auto& member : members) {
-          for(auto& c : member.first) {
+          for(auto& c : member.name) {
             hash = mix_hash(hash, c);
           }
-          hash = mix_hash(hash, member.second->compute_hash_if_needed());
+          hash = mix_hash(hash, member.type->compute_hash_if_needed());
         }
         if(item) {
           hash = mix_hash(hash, item->compute_hash_if_needed());
@@ -151,71 +164,6 @@ namespace serialization {
         return hash_.value();
       }
 
-      /* template <typename RW>
-      void serialized(RW func) {
-        func(name);
-        func(kind);
-        func(members);
-      } */
-/* 
-      template <typename W>
-      requires(Writer<W>)
-      void serialize(W& writer) {
-        serialization::serialize(writer, name);
-        serialization::serialize(writer, kind);
-        if(static_cast<Kind>(kind) == Kind::Object) {
-          serialization::serialize(writer, members);
-          serialization::serialize(writer, bases);
-        }
-        if(static_cast<Kind>(kind) == Kind::Array) {
-          serialization::serialize(writer, item);
-        }
-        if(static_cast<Kind>(kind) == Kind::Map) {
-          serialization::serialize(writer, key);
-          serialization::serialize(writer, item);
-        }
-        if(static_cast<Kind>(kind) == Kind::Enum) {
-          serialization::serialize(writer, enum_members);
-        }
-        if(static_cast<Kind>(kind) == Kind::Function) {
-          serialization::serialize(writer, members);
-          serialization::serialize(writer, item);
-        }
-        if(static_cast<Kind>(kind) == Kind::Method) {
-          serialization::serialize(writer, members);
-          serialization::serialize(writer, item);
-        }
-      }
-
-      template <typename R>
-      requires(Reader<R>)
-      void deserialize(R& reader) {
-        serialization::deserialize(reader, name);
-        serialization::deserialize(reader, kind);
-        if(static_cast<Kind>(kind) == Kind::Object) {
-          serialization::deserialize(reader, members);
-          serialization::deserialize(reader, bases);
-        }
-        if(static_cast<Kind>(kind) == Kind::Array) {
-          serialization::deserialize(reader, item);
-        }
-        if(static_cast<Kind>(kind) == Kind::Map) {
-          serialization::deserialize(reader, key);
-          serialization::deserialize(reader, item);
-        }
-        if(static_cast<Kind>(kind) == Kind::Enum) {
-          serialization::deserialize(reader, enum_members);
-        }
-        if(static_cast<Kind>(kind) == Kind::Function) {
-          serialization::deserialize(reader, members);
-          serialization::deserialize(reader, item);
-        }
-        if(static_cast<Kind>(kind) == Kind::Method) {
-          serialization::deserialize(reader, members);
-          serialization::deserialize(reader, item);
-        }
-      }
- */
       bool operator==(const type_description& other) const {
         if(hash_.has_value() && other.hash_.has_value()) {
           if(hash_.value() != other.hash_.value()) return false;
@@ -230,6 +178,10 @@ namespace serialization {
             os << std::meta::identifier_of(e);
           }
         };
+        if(tc.annotations.size() > 0) os << std::endl << " with annotations:" << std::endl;
+        for(const auto& annotation : tc.annotations) {
+          os << "  " << annotation->to_string() << std::endl;
+        }
         if(tc.kind == static_cast<std::uint8_t>(type_description::Kind::Object) 
            || tc.kind == static_cast<std::uint8_t>(type_description::Kind::DynamicObject)) {
           if(tc.bases.size() > 0) os << std::endl<< " with bases:" << std::endl;
@@ -238,7 +190,12 @@ namespace serialization {
           }
           if(tc.members.size() > 0) os << std::endl<< " with members:" << std::endl;
           for(const auto& member : tc.members) {
-            os << "  " << member.first << " of type " << member.second->getName() << std::endl;
+            os << "  " << member.name << " of type " << member.type->getName();
+            if(member.annotations.size() > 0) os << " with annotations:" << std::endl;
+            for(const auto& annotation : member.annotations) {
+              os << "    " << annotation->to_string() << std::endl;
+            }
+            os << std::endl;
           }
         }
         if(tc.kind == static_cast<std::uint8_t>(type_description::Kind::Array)) {
@@ -253,14 +210,14 @@ namespace serialization {
         if(tc.kind == static_cast<std::uint8_t>(type_description::Kind::Function)) {
           if(tc.members.size() > 0) os << std::endl << " with parameters:" << std::endl;
           for(const auto& member : tc.members) {
-            os << "  " << member.first << " of type " << member.second->getName() << std::endl;
+            os << "  " << member.name << " of type " << member.type->getName() << std::endl;
           }
           os << " with return type " << tc.item->getName() << std::endl;
         }
         if(tc.kind == static_cast<std::uint8_t>(type_description::Kind::Method)) {
           if(tc.members.size() > 0) os << std::endl << " with parameters:" << std::endl;
           for(const auto& member : tc.members) {
-            os << "  " << member.first << " of type " << member.second->getName() << std::endl;
+            os << "  " << member.name << " of type " << member.type->getName() << std::endl;
           }
           os << " with return type " << tc.item->getName() << std::endl;
         }
@@ -275,6 +232,7 @@ namespace serialization {
       std::shared_ptr<type_description> key;
       std::vector<enumMember> enum_members;
       std::vector<std::shared_ptr<type_description>> bases;
+      std::vector<type_annotation_ptr> annotations;
 
 
       friend class type_registry;
@@ -409,7 +367,7 @@ namespace serialization {
         std::string_view name = std::meta::identifier_of(param);
         auto param_value = typename [:std::meta::type_of(param):]();
         std::shared_ptr<type_description> param_type = create(param_value, registry);
-        method_type->members.push_back(std::make_pair(std::string(name), param_type));
+        method_type->members.push_back(type_description::member(std::string(name), param_type, {}));
       };
       constexpr std::meta::info return_type = std::meta::return_type_of(member);
       // Use display_string to check if it's a reference or void type
@@ -453,7 +411,11 @@ namespace serialization {
       [:expand(std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<auto dm> {        
         if constexpr(!is_member_ignored(dm)) {  
           std::string_view memberName = std::meta::identifier_of(dm);
-          type_description::member m = std::make_pair(std::string(memberName), create(value.[:dm:], registry));
+          type_description::member m = type_description::member(
+            std::string(memberName),
+            create(value.[:dm:], registry),
+            member_annotations_of<dm>()
+          );
           type->members.push_back(m);    
         }
       };
@@ -467,7 +429,9 @@ namespace serialization {
             std::make_shared<type_description>(full_name, type_description::Kind::Function);
           registry.register_type(method_type);
           register_parameters_and_return<member>(registry, method_type);
-          type->members.push_back(std::make_pair(full_name, method_type));
+          
+          auto annotations = member_annotations_of<member>();
+          type->members.push_back(type_description::member(full_name, method_type, annotations ));
         }
       };
 
@@ -511,7 +475,7 @@ namespace serialization {
               std::make_shared<type_description>(full_name, non_static_rpc_callable ? type_description::Kind::Method : type_description::Kind::Function);
             registry.register_type(method_type);
             register_parameters_and_return<member>(registry, method_type);
-            type->members.push_back(std::make_pair(full_name, method_type));
+            type->members.push_back(type_description::member(full_name, method_type, member_annotations_of<member>()));
           }
         };
       }
