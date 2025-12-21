@@ -43,7 +43,7 @@ namespace serialization {
   }
 
   template <UnsignedInteger T, Reader R>
-  requires(Reader<R> && UnsignedInteger<T>)
+  requires(Reader<R> && UnsignedInteger<T> && !Boolean<T>)
   void deserialize(R& reader, T& value) {
     std::uint64_t u64;
     reader.read_u64(u64);
@@ -51,7 +51,7 @@ namespace serialization {
   }
 
   template <SignedInteger T, Reader R>
-  requires(Reader<R> && SignedInteger<T>)
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T>)
   void deserialize(R& reader, T& value) {
     std::int64_t i64;
     reader.read_i64(i64);
@@ -59,7 +59,7 @@ namespace serialization {
   }
 
   template <FloatingPoint T, Reader R>
-  requires(Reader<R> && FloatingPoint<T>)
+  requires(Reader<R> && FloatingPoint<T> && !Boolean<T>)
   void deserialize(R& reader, T& value) {
     reader.read_f64(value);
   }

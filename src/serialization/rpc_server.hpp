@@ -114,7 +114,8 @@ namespace serialization {
           if constexpr (std::meta::is_function(member)
                      && std::meta::is_static_member(member) 
                      && std::meta::has_identifier(member) 
-                     && std::meta::is_public(member)) {           
+                     && std::meta::is_public(member)
+                     && !is_member_ignored(member)) {           
             register_parameters_and_return<member>(server);
 
             server.debug("rpc static method %s", std::string(std::meta::identifier_of(member)).c_str());
@@ -130,7 +131,8 @@ namespace serialization {
           ):] >> [&]<std::meta::info member> { 
             if constexpr (std::meta::is_function(member)
                        && std::meta::is_static_member(member) 
-                       && std::meta::has_identifier(member)) {
+                       && std::meta::has_identifier(member)
+                       && !is_member_ignored(member)) {
               constexpr std::string_view name = std::meta::identifier_of(member);
               if constexpr (name == "get_rpc_object") {
                 found = true;
@@ -147,7 +149,8 @@ namespace serialization {
           ):] >> [&]<std::meta::info member> {  
             if constexpr (std::meta::is_function(member) 
                        && std::meta::is_static_member(member)
-                       && std::meta::has_identifier(member)) {
+                       && std::meta::has_identifier(member)
+                       && !is_member_ignored(member)) {
               constexpr std::string_view name = std::meta::identifier_of(member);
               if constexpr (name == "get_rpc_instance") {
                 found = true;
@@ -176,7 +179,8 @@ namespace serialization {
             if constexpr (!std::meta::is_static_member(member)
                        && std::meta::is_public(member) 
                        && std::meta::has_identifier(member) 
-                       && std::meta::is_function(member)) {              
+                       && std::meta::is_function(member)
+                       && !is_member_ignored(member)) {              
               register_parameters_and_return<member>(server);
               // Convert reflection info to member function pointer
               server.debug("rpc dynamic method %s", std::string(std::meta::identifier_of(member)).c_str());
@@ -193,7 +197,8 @@ namespace serialization {
             if constexpr (!std::meta::is_static_member(member) 
                         && std::meta::is_public(member)
                         && std::meta::has_identifier(member)
-                        && std::meta::is_function(member)) {              
+                        && std::meta::is_function(member)
+                        && !is_member_ignored(member)) {              
               register_parameters_and_return<member>(server);
               // Convert reflection info to member function pointer
               server.debug("rpc singleton method %s", std::string(std::meta::identifier_of(member)).c_str());

@@ -41,19 +41,19 @@ namespace serialization {
   }
 
   template <class T, Writer W>
-  requires(UnsignedInteger<T> && Writer<W>)
+  requires(UnsignedInteger<T> && !Boolean<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_u64(value);
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i64(value);
   }
 
   template <class T, Writer W>
-  requires(FloatingPoint<T> && Writer<W>)
+  requires(FloatingPoint<T> && !Boolean<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_f64(value);
   }

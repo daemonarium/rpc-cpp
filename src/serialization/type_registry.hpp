@@ -30,12 +30,17 @@ namespace serialization {
       ~type_registry() {}
       
       size_t register_type(std::shared_ptr<type_description> type) {
-        if(types_by_index_.contains(type->type_index_)) {
+        if(types_by_name_.contains(std::string(type->getName()))) {
+          return std::find_if(types_.begin(), types_.end(), [&](const std::shared_ptr<type_description>& t) {
+            return t->getName() == type->getName();
+          }) - types_.begin();
+        }
+/*         if(types_by_index_.contains(type->type_index_)) {
           /// find index and return it
           return std::find_if(types_.begin(), types_.end(), [&](const std::shared_ptr<type_description>& t) {
             return t->type_index_ == type->type_index_;
           }) - types_.begin();
-        }
+        } */
         size_t index = types_.size();                
         types_.push_back(type);
         types_by_index_.insert(std::make_pair(type->type_index_, type));

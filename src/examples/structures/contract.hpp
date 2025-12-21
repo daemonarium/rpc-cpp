@@ -4,7 +4,7 @@
 #include <string>
 #include "serialization/annotations.hpp"
 
-namespace ipi {
+namespace waos {
   template <typename K, typename V>
   using index = std::map<K, V>;
 
@@ -21,11 +21,11 @@ concept ERC20 = requires(T) {
   { T::symbol() } -> std::same_as<std::string>;
   { T::decimals() } -> std::same_as<std::uint8_t>;
   { T::totalSupply() } -> std::same_as<amount>;
-  { T::balanceOf(ipi::address()) } -> std::same_as<amount>;
-  { T::allowance(ipi::address(), ipi::address()) } -> std::same_as<amount>;
-  { T::transfer(ipi::address(), amount()) } -> std::same_as<bool>;
-  { T::approve(ipi::address(), amount()) } -> std::same_as<bool>;
-  { T::transferFrom(ipi::address(), ipi::address(), amount()) } -> std::same_as<bool>;  
+  { T::balanceOf(waos::address()) } -> std::same_as<amount>;
+  { T::allowance(waos::address(), waos::address()) } -> std::same_as<amount>;
+  { T::transfer(waos::address(), amount()) } -> std::same_as<bool>;
+  { T::approve(waos::address(), amount()) } -> std::same_as<bool>;
+  { T::transferFrom(waos::address(), waos::address(), amount()) } -> std::same_as<bool>;  
 };
 
 class Contract {
@@ -36,40 +36,48 @@ class Contract {
 
     [[=serialization::read()]]
     std::string name() const { return name_; }
+
+    [[=serialization::read()]]
     std::string symbol() const { return symbol_; } 
+
+    [[=serialization::read()]]
     std::uint8_t decimals() const { return decimals_; }
+
+    [[=serialization::read()]]
     amount totalSupply() const { return totalSupply_; }
 
-    amount balanceOf(ipi::address addr) const { 
+    [[=serialization::read()]]
+    amount balanceOf(waos::address addr) const { 
       const auto it = balances.find(addr);
       if(it == balances.end()) return 0;    
       return it->second;
     }
 
-    amount allowance(ipi::address owner, ipi::address spender) const {
+    [[=serialization::read()]]
+    amount allowance(waos::address owner, waos::address spender) const {
       const auto it = allowances.find(std::make_pair(owner, spender));
       if(it == allowances.end()) return 0;
       return it->second;
     }
 
-    bool approve(ipi::address spender, amount value) {
-      allowances[std::make_pair(ipi::sender(), spender)] = value;
+    bool approve(waos::address spender, amount value) {
+      allowances[std::make_pair(waos::sender(), spender)] = value;
       return true;
     }
 
-    bool transfer(ipi::address to, amount value) {
+    bool transfer(waos::address to, amount value) {
       if(value == 0) return true;
-      if(to == ipi::sender()) return true;
-      if(value > balanceOf(ipi::sender())) return false;
-      balances[ipi::sender()] -= value;
+      if(to == waos::sender()) return true;
+      if(value > balanceOf(waos::sender())) return false;
+      balances[waos::sender()] -= value;
       balances[to] += value;
       return true;
     }
 
-    bool transferFrom(ipi::address from, ipi::address to, amount value) {
+    bool transferFrom(waos::address from, waos::address to, amount value) {
       if(value == 0) return true;
-      if(to == ipi::sender()) return true;
-      if(value > allowance(from, ipi::sender())) throw std::runtime_error("allowance too low");
+      if(to == waos::sender()) return true;
+      if(value > allowance(from, waos::sender())) throw std::runtime_error("allowance too low");
       if(value > balanceOf(from)) throw std::runtime_error("balance too low");
       balances[from] -= value;
       balances[to] += value;
@@ -77,18 +85,29 @@ class Contract {
       return true;
     } 
 
+    [[=serialization::policy::ignore]]
+    static Contract& get_rpc_instance();
+
   private:
     std::string name_;
     std::string symbol_;
     std::uint8_t decimals_;
     amount totalSupply_;
 
-    [[=serialization::policy::ignore]]
-    int ignored_test;
-
-    using Balances = ipi::index<ipi::address, amount>;
-    using AllowancePair = std::pair<ipi::address, ipi::address>;
-    using Allowances = ipi::index<AllowancePair, amount>;
+    using Balances = waos::index<waos::address, amount>;
+    using AllowancePair = std::pair<waos::address, waos::address>;
+    using Allowances = waos::index<AllowancePair, amount>;
     Balances balances;
     Allowances allowances;
+
+    static std::shared_ptr<Contract> instance_;
 };
+
+std::shared_ptr<Contract> Contract::instance_ = nullptr;
+
+Contract& Contract::get_rpc_instance() {
+  if(instance_ == nullptr) {
+    instance_ = std::make_shared<Contract>();
+  }
+  return *instance_;
+}

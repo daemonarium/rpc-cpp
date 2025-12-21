@@ -257,7 +257,7 @@ namespace serialization {
     public:
 
     template <typename T, TypeRegistry R>
-    requires(ContainerButNotString<T>)
+    requires(ContainerButNotString<T> && !Binary<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {      
       std::string_view name;
       if constexpr (std::meta::has_identifier(^^T)) {
@@ -298,19 +298,19 @@ namespace serialization {
     }
   
     template <typename T, TypeRegistry R>
-    requires(UnsignedInteger<T>)
+    requires(UnsignedInteger<T> && !Boolean<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
       return registry.get_type(1);
     }
   
     template <typename T, TypeRegistry R>
-    requires(SignedInteger<T>)
+    requires(SignedInteger<T> && !Boolean<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
       return registry.get_type(2);
     }
   
     template <typename T, TypeRegistry R>
-    requires(FloatingPoint<T>)
+    requires(FloatingPoint<T> && !Boolean<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
       return registry.get_type(3);
     }
@@ -342,11 +342,22 @@ namespace serialization {
     template <typename T, TypeRegistry R>
     requires(Enum<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
-      std::vector<type_description::enumMember> enum_members;
+      std::string_view name;
+      if constexpr (std::meta::has_identifier(^^T)) {
+        name = std::meta::identifier_of(^^T);
+      } else {
+        name = std::meta::display_string_of(^^T);
+      }     
+      std::shared_ptr<type_description> type = registry.get_type(name);
+      if(type) return type;
+      //std::vector<type_description::enumMember> enum_members;
+      type = std::make_shared<type_description>(std::string(name), type_description::Kind::Enum);
+      type->type_index_ = std::type_index(typeid(T));
+      registry.register_type(type);
       [:expand(std::meta::enumerators_of(^^T)):] >> [&]<auto e> {
-        enum_members.push_back(std::make_pair(std::meta::identifier_of(e), static_cast<std::uint64_t>([:e:])));
+        type->enum_members.push_back(std::make_pair(std::string(std::meta::identifier_of(e)), static_cast<std::uint64_t>([:e:])));
       };
-      return std::make_shared<type_description>(std::meta::identifier_of(^^T), type_description::Kind::Enum, enum_members);
+      return type;
     }  
     
     template <typename T, TypeRegistry R>
@@ -372,7 +383,7 @@ namespace serialization {
       constexpr std::meta::info return_type = std::meta::return_type_of(member);
       // Use display_string to check if it's a reference or void type
       constexpr std::string_view return_type_str = std::meta::display_string_of(return_type);
-      if constexpr (return_type_str.find('&') == std::string_view::npos && return_type_str != "void") {
+      if constexpr (return_type_str.find('&') == std::string_view::npos && return_type_str != "void" && return_type_str != "shared_ptr<promise<void>>") {
         // Not a reference and not void - safe to create object
         auto return_value = typename [:return_type:]();
         auto depromisified_value = depromisify(return_value);
@@ -421,7 +432,11 @@ namespace serialization {
       };
 
       [:serialization::expand(std::meta::members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<std::meta::info member> {  
-        if constexpr (std::meta::is_function(member) && std::meta::is_static_member(member) && std::meta::has_identifier(member) && std::meta::is_public(member)) {
+        if constexpr (std::meta::is_function(member) 
+                    && std::meta::is_static_member(member) 
+                    && std::meta::has_identifier(member) 
+                    && std::meta::is_public(member)
+                    && !is_member_ignored(member)) {
           std::string_view member_name = std::meta::identifier_of(member);
           std::string full_name = std::string(name) + "." + std::string(member_name);
   
@@ -438,7 +453,10 @@ namespace serialization {
       constexpr bool non_static_rpc_callable = []() constexpr -> bool {
         bool found = false;
         [:serialization::expand(std::meta::members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<std::meta::info member> {  
-          if constexpr (std::meta::is_function(member) && std::meta::is_static_member(member) && std::meta::has_identifier(member) && std::meta::is_public(member)) {
+          if constexpr (std::meta::is_function(member) 
+                     && std::meta::is_static_member(member) 
+                     && std::meta::has_identifier(member) 
+                     && std::meta::is_public(member)) {
             constexpr std::string_view name = std::meta::identifier_of(member);
             if constexpr (name == "get_rpc_object") {
               found = true;
@@ -451,7 +469,10 @@ namespace serialization {
       constexpr bool singleton_rpc_callable = []() constexpr -> bool {
         bool found = false;
         [:serialization::expand(std::meta::members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<std::meta::info member> {  
-          if constexpr (std::meta::is_function(member) && std::meta::is_static_member(member) && std::meta::has_identifier(member) && std::meta::is_public(member)) {
+          if constexpr (std::meta::is_function(member)
+                     && std::meta::is_static_member(member) 
+                     && std::meta::has_identifier(member) 
+                     && std::meta::is_public(member)) {
             constexpr std::string_view name = std::meta::identifier_of(member);
             if constexpr (name == "get_rpc_instance") {
               found = true;
@@ -467,7 +488,11 @@ namespace serialization {
 
       if constexpr (non_static_rpc_callable || singleton_rpc_callable) {
         [:serialization::expand(std::meta::members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<std::meta::info member> {  
-          if constexpr (std::meta::is_function(member) && !std::meta::is_static_member(member) && std::meta::has_identifier(member) && std::meta::is_public(member)) {
+          if constexpr (std::meta::is_function(member)
+                     && !std::meta::is_static_member(member)
+                     && std::meta::has_identifier(member)
+                     && std::meta::is_public(member)
+                     && !is_member_ignored(member)) {
             std::string_view member_name = std::meta::identifier_of(member);
             std::string full_name = std::string(name) + "." + std::string(member_name);
   
