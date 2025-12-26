@@ -129,7 +129,7 @@ namespace waos {
       //// TODO: add data observation support with channels
 
       [[=serialization::policy::ignore]]
-      static std::shared_ptr<Kernel> get_rpc_instance();
+      static Kernel& get_rpc_instance();
 
 
     private:      

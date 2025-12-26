@@ -57,15 +57,15 @@ namespace serialization {
         uint8_t number = value ? 1 : 0;
         stream_.write((char*)&number, 1);
       }
-      void write_string(std::string_view value) {
+      void write_string(const std::string_view value) {
         debug("write_string %zd '%s'", value.size(), value.data());
         write_uvar_int(value.size());
         stream_.write(value.data(), value.size());
       };      
-      void write_binary(std::string_view value) {
+      void write_binary(const std::vector<std::uint8_t>&& value) {
         debug("write_binary %zd", value.size());
         write_uvar_int(value.size());
-        stream_.write(value.data(), value.size());
+        stream_.write((char*)(value.data()), (size_t)(value.size()));
       }
 
       void write_length(std::size_t length) {

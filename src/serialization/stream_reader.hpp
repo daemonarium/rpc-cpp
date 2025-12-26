@@ -67,11 +67,11 @@ namespace serialization {
         stream_.read(value.data(), length);
         debug("  read_string result %zd '%s'", length, value.c_str());
       }
-      void read_binary(std::string& value) {
+      void read_binary(std::vector<std::uint8_t>& value) {
         debug("read_binary");
         size_t length = read_uvar_int();
         value.resize(length);
-        stream_.read(value.data(), length);
+        stream_.read((char*)(value.data()), length);
         debug("  read_binary result %zd", length);
       }
       void read_length(std::size_t& value) {

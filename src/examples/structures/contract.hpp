@@ -107,7 +107,7 @@ std::shared_ptr<Contract> Contract::instance_ = nullptr;
 
 Contract& Contract::get_rpc_instance() {
   if(instance_ == nullptr) {
-    instance_ = std::make_shared<Contract>();
+    instance_ = std::make_shared<Contract>("Waos Token", "WAOS", 6, 21000000000000);
   }
   return *instance_;
 }

@@ -11,7 +11,7 @@ namespace serialization {
   template<typename R> 
   concept Reader = requires(
     R reader, 
-    std::uint64_t& u64, std::int64_t& i64, double& f64, bool& b, std::string& s, std::string& bin, std::size_t& l,
+    std::uint64_t& u64, std::int64_t& i64, double& f64, bool& b, std::string& s, std::vector<std::uint8_t>& bin, std::size_t& l,
     std::shared_ptr<void>& data,
     std::weak_ptr<void>& weak_data
   ) {
@@ -41,12 +41,12 @@ namespace serialization {
       void enter_frame() { throw std::runtime_error("Not implemented"); }
       void exit_frame() { throw std::runtime_error("Not implemented"); }
 
-      std::uint64_t read_u64() { throw std::runtime_error("Not implemented"); }
-      std::int64_t read_i64() { throw std::runtime_error("Not implemented"); }
-      double read_f64() { throw std::runtime_error("Not implemented"); }
-      std::string read_string() { throw std::runtime_error("Not implemented"); }
-      bool read_bool() { throw std::runtime_error("Not implemented"); }
-      std::string read_binary() { throw std::runtime_error("Not implemented"); }
+      void read_u64(std::uint64_t& value) { throw std::runtime_error("Not implemented"); }
+      void read_i64(std::int64_t& value) { throw std::runtime_error("Not implemented"); }
+      void read_f64(double& value) { throw std::runtime_error("Not implemented"); }
+      void read_string(std::string* out) { throw std::runtime_error("Not implemented"); }
+      void read_bool(bool& value) { throw std::runtime_error("Not implemented"); }
+      void read_binary(std::vector<std::uint8_t>& value) { throw std::runtime_error("Not implemented"); }
       
       std::size_t read_length() { throw std::runtime_error("Not implemented"); }
 

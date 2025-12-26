@@ -12,7 +12,7 @@ namespace serialization {
   template <class T, Writer W>
   requires(Binary<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
-    writer.write_binary(value);
+    writer.write_binary(std::move(value));
   }
 
   template <class T, Writer W>

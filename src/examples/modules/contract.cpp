@@ -62,7 +62,7 @@ void send_message(std::uint32_t channel, char* buffer, size_t size);
 
 extern "C" void handle_message(std::uint32_t channel, char* buffer, size_t size) {
   if(channel != 0) return; // only handle channel 0 for request and response messages
-  std::istringstream input_stream(buffer, size);
+  std::istringstream input_stream(std::string(buffer, size));
   serialization::stream_reader reader(input_stream);
   std::ostringstream output_stream;
   serialization::stream_writer writer(output_stream);

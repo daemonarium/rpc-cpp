@@ -383,7 +383,8 @@ namespace serialization {
       constexpr std::meta::info return_type = std::meta::return_type_of(member);
       // Use display_string to check if it's a reference or void type
       constexpr std::string_view return_type_str = std::meta::display_string_of(return_type);
-      if constexpr (return_type_str.find('&') == std::string_view::npos && return_type_str != "void" && return_type_str != "shared_ptr<promise<void>>") {
+      if constexpr (return_type_str.find('&') == std::string_view::npos && return_type_str != "void"
+                    && return_type_str != "shared_ptr<promise<void>>") {
         // Not a reference and not void - safe to create object
         auto return_value = typename [:return_type:]();
         auto depromisified_value = depromisify(return_value);

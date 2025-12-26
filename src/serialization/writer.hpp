@@ -15,7 +15,7 @@ namespace serialization {
     { writer.write_f64(2.3) } -> std::same_as<void>;
     { writer.write_string("test") } -> std::same_as<void>;
     { writer.write_bool(true) } -> std::same_as<void>;
-    { writer.write_binary("test") } -> std::same_as<void>;
+    { writer.write_binary(std::vector<std::uint8_t>()) } -> std::same_as<void>;
     { writer.write_length(10) } -> std::same_as<void>;
     { writer.save_offset() } -> std::same_as<void>;
     { writer.begin_frame() } -> std::same_as<void>;
@@ -47,7 +47,7 @@ namespace serialization {
       void write_f64(double value) { throw new std::runtime_error("writeF64 not implemented"); }
       void write_string(std::string_view value) { throw new std::runtime_error("writeString not implemented"); }
       void write_bool(bool value) { throw new std::runtime_error("writeBool not implemented"); }
-      void write_binary(std::string_view value) { throw new std::runtime_error("writeBinary not implemented"); }
+      void write_binary(std::vector<std::uint8_t>&& value) { throw new std::runtime_error("writeBinary not implemented"); }
 
       void write_typed(std::type_index value, void* data) { 
         throw new std::runtime_error("writeTyped not implemented");

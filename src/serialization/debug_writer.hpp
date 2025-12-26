@@ -45,8 +45,8 @@ namespace serialization {
       void write_bool(bool value) {
         stream_ << std::string(indent_, ' ') << "writeBool " << value << std::endl;
       }
-      void write_binary(std::string_view value) {
-        stream_ << std::string(indent_, ' ') << "writeBinary " << value << std::endl;
+      void write_binary(const std::vector<std::uint8_t>&& value) {
+        stream_ << std::string(indent_, ' ') << "writeBinary " << value.size() << std::endl;
       }
       void write_length(std::size_t length) {
         stream_ << std::string(indent_, ' ') << "writeLength " << length << std::endl;
