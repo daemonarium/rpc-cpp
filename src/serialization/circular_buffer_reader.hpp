@@ -1,0 +1,206 @@
+#pragma once
+
+#include <cstdint>
+#include <istream>
+#include <typeindex>
+#include <vector>
+#include <unordered_map>
+#include <functional>
+#include <memory>
+
+extern "C" {
+#include <io/circular_buffer.h>
+}
+
+#include "reader.hpp"
+
+namespace serialization {
+
+  class circular_buffer_reader : public reader {
+    public:
+      explicit circular_buffer_reader(struct circular_buffer* buffer) : buffer_(buffer) {}
+      ~circular_buffer_reader() = default;
+
+      consteval bool is_indexed() { return false; }
+
+      void enter_frame() {
+        // no-op for circular buffer backend
+      }
+
+      void exit_frame() {
+        // no-op for circular buffer backend
+      }
+
+      void enter_indexed_frame(size_t id) {
+        throw std::runtime_error("Not indexed");
+      }
+
+      void read_u64(std::uint64_t& value) {
+        value = read_uvar_int();
+      }
+
+      void read_i64(std::int64_t& value) {
+        value = read_svar_int();
+      }
+
+      void read_f64(double& value) {
+        std::uint64_t v;
+        read_bytes(&v, sizeof(v));
+        if(v & 0x8000000000000000) {
+          v ^= 0x8000000000000000;
+        } else {
+          v = ~v;
+        }
+        value = *(double*)(&v);
+      }
+
+      void read_bool(bool& value) {
+        uint8_t byte = 0;
+        read_bytes(&byte, 1);
+        value = byte != 0;
+      }
+
+      void read_string(std::string& value) {
+        size_t length = read_uvar_int();
+        value.resize(length);
+        if(length > 0) {
+          read_bytes(value.data(), length);
+        }
+      }
+
+      void read_binary(std::vector<std::uint8_t>& value) {
+        size_t length = read_uvar_int();
+        value.resize(length);
+        if(length > 0) {
+          read_bytes(value.data(), length);
+        }
+      }
+
+      void read_length(std::size_t& value) {
+        value = read_uvar_int();
+      }
+
+      template <typename T>
+      void read_typed(std::shared_ptr<T>& data) {
+        size_t index = read_uvar_int();
+        void* ptr = &data;
+        deserialize_functions_[index](ptr);
+      }
+
+      void read_typed(std::weak_ptr<void>& data) {
+        std::shared_ptr<void> shared;
+        read_typed(shared);
+        data = shared;
+      }
+
+      void register_deserialization_function(std::type_index type,
+          std::function<void(void*)> deserialize) {
+        type_indexes_[type] = deserialize_functions_.size();
+        deserialize_functions_.push_back(deserialize);
+      }
+
+      template <typename T>
+      void register_deserialization_function() {
+        auto type = std::type_index(typeid(T));
+        register_deserialization_function(type, [&reader = *this](void* ptr) {
+          std::shared_ptr<T>& shared = *((std::shared_ptr<T>*)ptr);
+          std::shared_ptr<T> data = std::make_shared<T>();
+          deserialize(reader, *data);
+          shared = data;
+        });
+      }
+
+      template <typename T>
+      void read_pointer(std::shared_ptr<T>& value, ReadLater read_later) {
+        std::int64_t delta = read_svar_int();
+        if(delta == 0) {
+          value = nullptr;
+          return;
+        }
+        if(delta < 0) { /// already read
+          size_t index = read_pointers_.size() - delta;
+          value = std::static_pointer_cast<T>(read_pointers_[index]);
+          return;
+        }
+        AssignAfterRead assign = [&value](std::shared_ptr<void>& data) {
+          value = std::static_pointer_cast<T>(data);
+        };
+        delta--; // decrement delta, because 0 is null
+        if(delta < read_later_.size()) { // will be read later
+          read_later_[delta].first.push_back(assign);
+          return;
+        }
+        if(delta > read_later_.size()) { // writer should always write pointers in the same order
+          throw std::runtime_error("Pointer delta too large, input is corrupted");
+        }
+        read_later_.push_back({std::vector<AssignAfterRead>{assign}, read_later});
+      }
+
+      template <typename T>
+      void read_pointer(std::weak_ptr<T>& value, ReadLater read_later) {
+        std::shared_ptr<T> shared;
+        read_pointer(shared, read_later);
+        value = shared;
+      }
+
+      void read_rest() {
+        while(!read_later_.empty()) {
+          auto pair = read_later_.front();
+          std::shared_ptr<void> result;
+          pair.second(result);
+          for(auto& assign : pair.first) {
+            assign(result);
+          }
+          read_pointers_.push_back(result);
+          read_later_.erase(read_later_.begin());
+        }
+      }
+
+    public:
+      struct circular_buffer* buffer_;
+    private:
+
+      std::vector<std::shared_ptr<void>> read_pointers_;
+
+      using AssignAfterRead = std::function<void(std::shared_ptr<void>&)>;
+      std::vector<std::pair<std::vector<AssignAfterRead>, ReadLater>> read_later_;
+
+      std::vector<std::function<void(void*)>> deserialize_functions_;
+      std::unordered_map<std::type_index, size_t> type_indexes_;
+
+      void ensure_readable(size_t bytes) {
+        size_t available = circular_buffer_readable_bytes(buffer_);
+        if(available < bytes) {
+          throw std::runtime_error("Not enough data in circular buffer");
+        }
+      }
+
+      void read_bytes(void* dest, size_t bytes) {
+        ensure_readable(bytes);
+        size_t read = circular_buffer_read(buffer_, dest, bytes);
+        if(read != bytes) {
+          throw std::runtime_error("Failed to read from circular buffer");
+        }
+      }
+
+      std::uint64_t read_uvar_int() {
+        uint64_t value = 0;
+        size_t read = circular_buffer_read_uvarint(buffer_, &value);
+        if(read == 0) {
+          throw std::runtime_error("Failed to read uvarint");
+        }
+        return value;
+      }
+
+      std::int64_t read_svar_int() {
+        int64_t value = 0;
+        size_t read = circular_buffer_read_svarint(buffer_, &value);
+        if(read == 0) {
+          throw std::runtime_error("Failed to read svarint");
+        }
+        return value;
+      }
+  };
+}
+
+

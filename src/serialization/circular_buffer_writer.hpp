@@ -1,0 +1,185 @@
+#pragma once
+
+#include <cstdint>
+#include <ostream>
+#include <typeindex>
+#include <vector>
+#include <unordered_map>
+#include <functional>
+#include <memory>
+#include <algorithm>
+
+extern "C" {
+#include <io/circular_buffer.h>
+}
+
+#include "writer.hpp"
+
+namespace serialization {
+
+  class circular_buffer_writer : public writer {
+    public:
+      explicit circular_buffer_writer(struct circular_buffer* buffer) : buffer_(buffer) {}
+      ~circular_buffer_writer() = default;
+
+      void begin_frame() {
+        // no-op for circular buffer backend
+      }
+
+      void end_frame() {
+        // no-op for circular buffer backend
+      }
+
+      void write_u64(std::uint64_t value) {
+        write_uvar_int(value);
+      }
+
+      void write_i64(std::int64_t value) {
+        write_svar_int(value);
+      }
+
+      void write_f64(double value) {
+        std::uint64_t v = *(std::uint64_t*)(&value);
+        if(v & 0x8000000000000000) {
+          v ^= 0x8000000000000000;
+        } else {
+          v = ~v;
+        }
+        write_bytes(&v, sizeof(v));
+      }
+
+      void write_bool(bool value) {
+        uint8_t number = value ? 1 : 0;
+        write_bytes(&number, 1);
+      }
+
+      void write_string(const std::string_view value) {
+        write_uvar_int(value.size());
+        write_bytes(value.data(), value.size());
+      }
+
+      void write_binary(const std::vector<std::uint8_t>&& value) {
+        write_uvar_int(value.size());
+        if(!value.empty()) {
+          write_bytes(value.data(), value.size());
+        }
+      }
+
+      void write_length(std::size_t length) {
+        write_uvar_int(length);
+      }
+
+      template <typename T>
+      void write_typed(std::shared_ptr<T> data) {
+        auto type_index = std::type_index(typeid(*data));
+        auto it = type_indexes_.find(type_index);
+        if(it == type_indexes_.end()) {
+          throw std::runtime_error("Type not registered");
+        }
+        size_t index = it->second;
+        write_uvar_int(index);
+        serialize_functions_[index](&data);
+      }
+
+      void save_offset() { /* no-op */ }
+
+      void write_rest() {
+        while(!write_later_.empty()) {
+          auto pair = write_later_.front();
+          pair.second();
+          written_pointers_.push_back(pair.first);
+          write_later_.erase(write_later_.begin());
+        }
+      }
+
+      void register_serialization_function(std::type_index type,
+          std::function<void(void*)> serialize) {
+        type_indexes_[type] = serialize_functions_.size();
+        serialize_functions_.push_back(serialize);
+      }
+
+      template <typename T>
+      void register_serialization_function() {
+        auto type = std::type_index(typeid(T));
+        register_serialization_function(type, [&writer = *this](void* ptr) {
+          std::shared_ptr<T> data = *((std::shared_ptr<T>*)ptr);
+          serialize(writer, *data);
+        });
+      }
+
+      template <typename T>
+      void write_pointer(std::shared_ptr<T> value, WriteLater write_later) {
+        if(!value) {
+          write_svar_int(0); // null = 0
+          return;
+        }
+        auto existing = std::find(written_pointers_.begin(), written_pointers_.end(), value);
+        if (existing != written_pointers_.end()) {
+          std::int32_t index = std::distance(written_pointers_.begin(), existing);
+          std::int32_t delta = index - written_pointers_.size();
+          write_svar_int(delta); // always negative
+          return;
+        }
+        auto will_be_written = std::find_if(write_later_.begin(), write_later_.end(),
+          [value](const auto& pair) {
+            return pair.first == value;
+          }
+        );
+        if (will_be_written != write_later_.end()) {
+          size_t index = std::distance(write_later_.begin(), will_be_written);
+          write_svar_int(index + 1); // always positive
+          return;
+        }
+        size_t index = write_later_.size();
+        write_svar_int(index + 1); // always positive
+        write_later_.push_back({value, write_later});
+      }
+
+      template <typename T>
+      void write_pointer(std::weak_ptr<T> value, WriteLater write_later) {
+        write_pointer(value.lock(), write_later);
+      }
+
+    private:
+      struct circular_buffer* buffer_;
+
+      std::vector<std::shared_ptr<void>> written_pointers_;
+      std::vector<std::pair<std::shared_ptr<void>, WriteLater>> write_later_;
+
+      std::vector<std::function<void(void*)>> serialize_functions_;
+      std::unordered_map<std::type_index, size_t> type_indexes_;
+
+      void ensure_writable(size_t bytes) {
+        size_t available = circular_buffer_reserve_for_writing(buffer_, bytes);
+        if(available < bytes) {
+          throw std::runtime_error("Not enough space in circular buffer");
+        }
+      }
+
+      void write_bytes(const void* source, size_t bytes) {
+        ensure_writable(bytes);
+        size_t written = circular_buffer_write(buffer_, source, bytes);
+        if(written != bytes) {
+          throw std::runtime_error("Failed to write to circular buffer");
+        }
+      }
+
+      void write_uvar_int(std::uint64_t value) {
+        ensure_writable(9);
+        size_t written = circular_buffer_write_uvarint(buffer_, value);
+        if(written == 0) {
+          throw std::runtime_error("Failed to write uvarint");
+        }
+      }
+
+      void write_svar_int(std::int64_t value) {
+        ensure_writable(9);
+        size_t written = circular_buffer_write_svarint(buffer_, value);
+        if(written == 0) {
+          throw std::runtime_error("Failed to write svarint");
+        }
+      }
+  };
+}
+
+

@@ -8,10 +8,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include_directories(src)
 aux_source_directory(src SRC_FILES)
 aux_source_directory(src/serialization SERIALIZATION_FILES)
+aux_source_directory(src/io IO_FILES)
 
 set(WASI_STUBS_FILES ${CMAKE_SOURCE_DIR}/src/utils/wasi_stubs.cpp)
 
-add_executable(cppSerialization ${SRC_FILES} ${SERIALIZATION_FILES})
+add_executable(cppSerialization ${SRC_FILES} ${SERIALIZATION_FILES} ${IO_FILES})
 
 target_include_directories(cppSerialization PRIVATE include)
 
@@ -19,7 +20,7 @@ file(GLOB EXAMPLE_FILES "src/examples/*.cpp")
 
 foreach(EXAMPLE_FILE ${EXAMPLE_FILES})
   get_filename_component(EXAMPLE_NAME ${EXAMPLE_FILE} NAME_WE)
-  add_executable(${EXAMPLE_NAME} ${EXAMPLE_FILE} ${SERIALIZATION_FILES})
+  add_executable(${EXAMPLE_NAME} ${EXAMPLE_FILE} ${SERIALIZATION_FILES} ${IO_FILES})
   target_include_directories(${EXAMPLE_NAME} PRIVATE include src)
   set_target_properties(${EXAMPLE_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/examples
@@ -33,7 +34,7 @@ if(WASM)
   foreach(EXAMPLE_MODULE_FILE ${EXAMPLE_MODULES_FILES})
     get_filename_component(EXAMPLE_MODULE_NAME ${EXAMPLE_MODULE_FILE} NAME_WE)
     
-    add_executable(${EXAMPLE_MODULE_NAME} ${EXAMPLE_MODULE_FILE} ${SERIALIZATION_FILES} ${WASI_STUBS_FILES})
+    add_executable(${EXAMPLE_MODULE_NAME} ${EXAMPLE_MODULE_FILE} ${SERIALIZATION_FILES} ${IO_FILES} ${WASI_STUBS_FILES})
     target_link_options(${EXAMPLE_MODULE_NAME} PRIVATE
       -s STANDALONE_WASM=1
       -fwasm-exceptions

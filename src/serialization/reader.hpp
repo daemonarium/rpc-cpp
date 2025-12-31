@@ -44,7 +44,7 @@ namespace serialization {
       void read_u64(std::uint64_t& value) { throw std::runtime_error("Not implemented"); }
       void read_i64(std::int64_t& value) { throw std::runtime_error("Not implemented"); }
       void read_f64(double& value) { throw std::runtime_error("Not implemented"); }
-      void read_string(std::string* out) { throw std::runtime_error("Not implemented"); }
+      void read_string(std::string& value) { throw std::runtime_error("Not implemented"); }
       void read_bool(bool& value) { throw std::runtime_error("Not implemented"); }
       void read_binary(std::vector<std::uint8_t>& value) { throw std::runtime_error("Not implemented"); }
       
