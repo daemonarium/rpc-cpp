@@ -76,3 +76,9 @@ extern "C" void handle_message(std::uint32_t channel, char* buffer, size_t size)
 extern "C" void start() {
   register_all();
 }
+
+extern "C" void waos_socket_data(std::uint32_t socket) {
+}
+
+extern "C" void waos_socket_drain(std::uint32_t socket) {
+}

@@ -71,8 +71,8 @@ size_t circular_buffer_writable_bytes(struct circular_buffer* buffer) {
 
 size_t circular_buffer_grow(struct circular_buffer* buffer, size_t new_minimum_size) {
   if(new_minimum_size <= buffer->data->size - HEADER_SIZE - 1) {
-    printf("new buffer length %zd must be greater than current buffer length %zd\n",
-         new_minimum_size, buffer->data->size - HEADER_SIZE - 1);
+    //printf("new buffer length %zd must be greater than current buffer length %zd\n",
+    //     new_minimum_size, buffer->data->size - HEADER_SIZE - 1);
     //__asm__("unreachable");
   }
   size_t new_length = buffer->new_length(new_minimum_size + HEADER_SIZE + 1); // one additional byte so that

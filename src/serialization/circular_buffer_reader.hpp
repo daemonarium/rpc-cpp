@@ -18,7 +18,11 @@ namespace serialization {
 
   class circular_buffer_reader : public reader {
     public:
-      explicit circular_buffer_reader(struct circular_buffer* buffer) : buffer_(buffer) {}
+      explicit circular_buffer_reader(struct circular_buffer* buffer, size_t read_offset = 0) : buffer_(buffer), read_offset_(read_offset) {
+        if(read_offset > circular_buffer_readable_bytes(buffer_)) {
+          throw std::runtime_error("Read offset is greater than the number of readable bytes");
+        }
+      }
       ~circular_buffer_reader() = default;
 
       consteval bool is_indexed() { return false; }
@@ -158,6 +162,7 @@ namespace serialization {
 
     public:
       struct circular_buffer* buffer_;
+      size_t read_offset_;
     private:
 
       std::vector<std::shared_ptr<void>> read_pointers_;
@@ -169,7 +174,7 @@ namespace serialization {
       std::unordered_map<std::type_index, size_t> type_indexes_;
 
       void ensure_readable(size_t bytes) {
-        size_t available = circular_buffer_readable_bytes(buffer_);
+        size_t available = circular_buffer_readable_bytes(buffer_) - read_offset_;
         if(available < bytes) {
           throw std::runtime_error("Not enough data in circular buffer");
         }
@@ -177,27 +182,30 @@ namespace serialization {
 
       void read_bytes(void* dest, size_t bytes) {
         ensure_readable(bytes);
-        size_t read = circular_buffer_read(buffer_, dest, bytes);
+        size_t read = circular_buffer_peek(buffer_, read_offset_, dest, bytes);
         if(read != bytes) {
           throw std::runtime_error("Failed to read from circular buffer");
         }
+        read_offset_ += read;
       }
 
       std::uint64_t read_uvar_int() {
         uint64_t value = 0;
-        size_t read = circular_buffer_read_uvarint(buffer_, &value);
+        size_t read = circular_buffer_peek_uvarint(buffer_, read_offset_, &value);
         if(read == 0) {
           throw std::runtime_error("Failed to read uvarint");
         }
+        read_offset_ += read;
         return value;
       }
 
       std::int64_t read_svar_int() {
         int64_t value = 0;
-        size_t read = circular_buffer_read_svarint(buffer_, &value);
+        size_t read = circular_buffer_peek_svarint(buffer_, read_offset_, &value);
         if(read == 0) {
           throw std::runtime_error("Failed to read svarint");
         }
+        read_offset_ += read;
         return value;
       }
   };

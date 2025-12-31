@@ -19,7 +19,11 @@ namespace serialization {
 
   class circular_buffer_writer : public writer {
     public:
-      explicit circular_buffer_writer(struct circular_buffer* buffer) : buffer_(buffer) {}
+      explicit circular_buffer_writer(struct circular_buffer* buffer, size_t write_offset = 0) : buffer_(buffer), write_offset_(write_offset) {
+        if(write_offset > circular_buffer_writable_bytes(buffer_)) {
+          throw std::runtime_error("Write offset is greater than the number of writable bytes");
+        }
+      }
       ~circular_buffer_writer() = default;
 
       void begin_frame() {
@@ -140,9 +144,11 @@ namespace serialization {
         write_pointer(value.lock(), write_later);
       }
 
-    private:
+    public:
       struct circular_buffer* buffer_;
-
+      size_t write_offset_;
+    private:
+      
       std::vector<std::shared_ptr<void>> written_pointers_;
       std::vector<std::pair<std::shared_ptr<void>, WriteLater>> write_later_;
 
@@ -150,7 +156,7 @@ namespace serialization {
       std::unordered_map<std::type_index, size_t> type_indexes_;
 
       void ensure_writable(size_t bytes) {
-        size_t available = circular_buffer_reserve_for_writing(buffer_, bytes);
+        size_t available = circular_buffer_reserve_for_writing(buffer_, bytes + write_offset_);
         if(available < bytes) {
           throw std::runtime_error("Not enough space in circular buffer");
         }
@@ -158,26 +164,29 @@ namespace serialization {
 
       void write_bytes(const void* source, size_t bytes) {
         ensure_writable(bytes);
-        size_t written = circular_buffer_write(buffer_, source, bytes);
+        size_t written = circular_buffer_poke(buffer_, write_offset_, source, bytes);
         if(written != bytes) {
           throw std::runtime_error("Failed to write to circular buffer");
         }
+        write_offset_ += written;
       }
 
       void write_uvar_int(std::uint64_t value) {
         ensure_writable(9);
-        size_t written = circular_buffer_write_uvarint(buffer_, value);
+        size_t written = circular_buffer_poke_uvarint(buffer_, write_offset_, value);
         if(written == 0) {
           throw std::runtime_error("Failed to write uvarint");
         }
+        write_offset_ += written;
       }
 
       void write_svar_int(std::int64_t value) {
         ensure_writable(9);
-        size_t written = circular_buffer_write_svarint(buffer_, value);
+        size_t written = circular_buffer_poke_svarint(buffer_, write_offset_, value);
         if(written == 0) {
           throw std::runtime_error("Failed to write svarint");
         }
+        write_offset_ += written;
       }
   };
 }
