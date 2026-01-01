@@ -10,7 +10,8 @@ aux_source_directory(src SRC_FILES)
 aux_source_directory(src/serialization SERIALIZATION_FILES)
 aux_source_directory(src/io IO_FILES)
 
-set(WASI_STUBS_FILES ${CMAKE_SOURCE_DIR}/src/utils/wasi_stubs.cpp)
+set(WASI_STUBS_FILES ${CMAKE_SOURCE_DIR}/cpp-rpc/src/utils/wasi_stubs.cpp)
+
 
 add_executable(cppSerialization ${SRC_FILES} ${SERIALIZATION_FILES} ${IO_FILES})
 
@@ -20,7 +21,7 @@ file(GLOB EXAMPLE_FILES "src/examples/*.cpp")
 
 foreach(EXAMPLE_FILE ${EXAMPLE_FILES})
   get_filename_component(EXAMPLE_NAME ${EXAMPLE_FILE} NAME_WE)
-  add_executable(${EXAMPLE_NAME} ${EXAMPLE_FILE} ${SERIALIZATION_FILES} ${IO_FILES})
+  add_executable(${EXAMPLE_NAME} ${EXAMPLE_FILE} ${SERIALIZATION_FILES})
   target_include_directories(${EXAMPLE_NAME} PRIVATE include src)
   set_target_properties(${EXAMPLE_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/examples
@@ -46,7 +47,7 @@ if(WASM)
       -sTOTAL_STACK=20000
       -sEXPORTED_FUNCTIONS=_rpc_description,_start,_handle_message,_malloc,_waos_socket_data,_waos_socket_drain
       -sERROR_ON_UNDEFINED_SYMBOLS=0
-      -Wl,--allow-undefined-file=${CMAKE_SOURCE_DIR}/src/examples/modules/allowed-undefined-symbols.syms
+      -Wl,--allow-undefined-file=${CMAKE_SOURCE_DIR}/cpp-rpc/src/examples/modules/allowed-undefined-symbols.syms
     )
 
     target_include_directories(${EXAMPLE_MODULE_NAME} PRIVATE include src)
