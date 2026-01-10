@@ -1,21 +1,4 @@
-#include <cstdint>
-#include <cstddef>
+#include <utils/module.hpp>
 
-extern "C" size_t rpc_description(char** buffer) {
-  return 0;
-}
-
-extern "C" __attribute__((import_module("env"), import_name("send_message")))
-void send_message(std::uint32_t channel, char* buffer, size_t size);
-
-extern "C" void handle_message(std::uint32_t channel, char* buffer, size_t size) {
-}
-
-extern "C" void start() {
-}
-
-extern "C" void waos_socket_data(std::uint32_t socket) {
-}
-
-extern "C" void waos_socket_drain(std::uint32_t socket) {
+void register_all() {
 }
