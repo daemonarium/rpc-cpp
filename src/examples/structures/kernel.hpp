@@ -10,28 +10,13 @@ namespace waos {
 
   using binary = std::vector<std::uint8_t>;
 
-  struct range {
-    binary gt_key;
-    bool gt_inclusive;
-    binary lt_key;
-    bool lt_inclusive;
-    size_t limit;
-    range() {}
-  };
-
-  class Kernel {
+  class kernel {
     public:
-      Kernel() = default;      
+      kernel() = default;      
 
       using process_id = size_t;
       using channel_id = size_t;
-      using module_id = size_t;
-
-      using module_flags = std::uint32_t;
-      enum class module_flag {
-        MEASURE_GAS = 1 << 0,
-        SOFT_FLOAT = 1 << 1        
-      };
+      //using module_id = size_t;
 
       enum class direction {
         NONE = 0,
@@ -40,64 +25,26 @@ namespace waos {
         BOTH = 3,
       };
 
-      static std::shared_ptr<serialization::promise<process_id>> create_process() {
+      static std::shared_ptr<serialization::promise<process_id>> spawn(binary code, size_t memory_limit, size_t mana_limit) {
         return serialization::promise<process_id>::resolved(0);
       }
-      static std::shared_ptr<serialization::promise<void>> destroy_process(process_id id) {
+      static std::shared_ptr<serialization::promise<process_id>> resurect(binary code, binary memory,
+                                                                          size_t memory_limit, size_t mana_limit) {
+        return serialization::promise<process_id>::resolved(0);
+      }
+      static std::shared_ptr<serialization::promise<binary>> save(process_id id) {
+        return serialization::promise<binary>::resolved(binary());
+      }
+      static std::shared_ptr<serialization::promise<void>> kill(process_id id) {
         return serialization::promise<void>::resolved();
       }
 
-      static std::shared_ptr<serialization::promise<void>> load_module(process_id process_id, module_id module_id,
-                       std::string db_name, std::string table_name, binary key,
-                       module_flags flags) {
-        return serialization::promise<void>::resolved();
-      }
-      
-      static std::shared_ptr<serialization::promise<void>> load_memory(process_id process_id, std::string db_name, 
-                                                                std::string table_name, binary key) {
-        return serialization::promise<void>::resolved();
-      }
-      static std::shared_ptr<serialization::promise<void>> store_memory(process_id process_id, std::string db_name,
-                                                                 std::string table_name, binary key) {
-        return serialization::promise<void>::resolved();
-      }
-     
-      static std::shared_ptr<serialization::promise<void>> initialize_process(process_id process_id) {
-        return serialization::promise<void>::resolved();
-      }
-      static std::shared_ptr<serialization::promise<void>> finalize_process(process_id process_id) {
-        return serialization::promise<void>::resolved();
-      }
-
-      static std::shared_ptr<serialization::promise<void>> send_message(process_id process_id, channel_id channel_id,
-                                                                 binary message) {
-        return serialization::promise<void>::resolved();
-      }
-
-      static std::shared_ptr<serialization::promise<std::vector<std::uint8_t>>> request(process_id process_id, channel_id channel_id,
-                                                                                 binary message) {
-        return serialization::promise<std::vector<std::uint8_t>>::rejected(
-          std::make_exception_ptr(std::runtime_error("Not implemented"))
-        );
-      }
-      
-      static std::shared_ptr<serialization::promise<void>> link(process_id process_id,
-                module_id from_module, module_id to_module,
-                std::string from_name, std::string to_name) {
-        return serialization::promise<void>::resolved();
-      }
-      static std::shared_ptr<serialization::promise<void>> unlink(process_id process_id, 
-                  module_id from_module, module_id to_module, std::string from_name,
-                  std::string to_name) {
-        return serialization::promise<void>::resolved();
-      }
-
-      static std::shared_ptr<serialization::promise<void>> connect(process_id process_from, channel_id channel_from, 
+      static std::shared_ptr<serialization::promise<void>> bind(process_id process_from, channel_id channel_from, 
                    process_id process_to, channel_id channel_to,
                    direction direction) {
         return serialization::promise<void>::resolved();
       }
-      static std::shared_ptr<serialization::promise<void>> disconnect(process_id process_from, channel_id channel_from,
+      static std::shared_ptr<serialization::promise<void>> unbind(process_id process_from, channel_id channel_from,
                       process_id process_to, channel_id channel_to,
                       direction direction) {
         return serialization::promise<void>::resolved();
@@ -107,59 +54,36 @@ namespace waos {
                                                             process_id monitor, channel_id monitor_channel) {
         return serialization::promise<void>::resolved();
       }
-      static std::shared_ptr<serialization::promise<void>> unmonitor(process_id target,
+      static std::shared_ptr<serialization::promise<void>> demonitor(process_id target,
                                                               process_id monitor, channel_id monitor_channel) {
         return serialization::promise<void>::resolved();
       }
 
-      static std::shared_ptr<serialization::promise<void>> set(std::string db_name, std::string table_name, 
-                                                        binary key, binary value) {
+      static std::shared_ptr<serialization::promise<size_t>> measure_mana(process_id process, size_t new_mana) {
+        return serialization::promise<size_t>::resolved(0);
+      }
+
+      static std::shared_ptr<serialization::promise<void>> set_mana_limit(size_t mana_limit) {
         return serialization::promise<void>::resolved();
       }
-      static std::shared_ptr<serialization::promise<binary>> get(std::string db_name, std::string table_name, 
-                                                          binary key) {
-        return serialization::promise<binary>::resolved(binary());
-      }
-      static std::shared_ptr<serialization::promise<void>> remove(std::string db_name, std::string table_name, 
-                                                          binary key) {
-        return serialization::promise<void>::resolved();
-      }
-
-      static std::shared_ptr<serialization::promise<std::vector<std::pair<binary, binary>>>> range_get(
-        std::string db_name, std::string table_name, range range) {
-        return serialization::promise<std::vector<std::pair<binary, binary>>>::resolved(
-          std::vector<std::pair<binary, binary>>()
-        );
-      }
-
-      static std::shared_ptr<serialization::promise<void>> range_remove(
-        std::string db_name, std::string table_name, range range) {
-        return serialization::promise<void>::resolved();
-      }
-
-      struct batch_operation {                        
-        range range;
-        binary value;
-        enum class type {
-          SET = 0,
-          REMOVE = 1,
-        } type;
-      };
-
-      using batch_operations = std::vector<batch_operation>;
-
-      static std::shared_ptr<serialization::promise<void>> batch_update(
-        std::string db_name, std::string table_name, batch_operations operations) {
-        return serialization::promise<void>::resolved();
-      }
-
-      //// TODO: add data observation support with channels
-
-
-
-    private:      
   };
 
+  struct process_event {    
+    kernel::process_id process;
+    virtual ~process_event() {}
+  };
 
+  struct [[=serialization::dynamic()]] process_killed_event : process_event {  
+    virtual ~process_killed_event() {}    
+  };
+
+  struct [[=serialization::dynamic()]] process_error_event : process_event {
+    virtual ~process_error_event() {}
+    std::string error;
+  };
+
+  struct process_event_pointer {
+    std::shared_ptr<process_event> event_pointer;
+  };
 
 }
