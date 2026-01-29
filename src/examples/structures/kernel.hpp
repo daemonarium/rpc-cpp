@@ -15,7 +15,7 @@ namespace waos {
       kernel() = default;      
 
       using process_id = size_t;
-      using channel_id = size_t;
+      using socket_id = size_t;
       //using module_id = size_t;
 
       enum class direction {
@@ -39,23 +39,23 @@ namespace waos {
         return serialization::promise<void>::resolved();
       }
 
-      static std::shared_ptr<serialization::promise<void>> bind(process_id process_from, channel_id channel_from, 
-                   process_id process_to, channel_id channel_to,
+      static std::shared_ptr<serialization::promise<void>> bind(process_id process_from, socket_id socket_from, 
+                   process_id process_to, socket_id socket_to,
                    direction direction) {
         return serialization::promise<void>::resolved();
       }
-      static std::shared_ptr<serialization::promise<void>> unbind(process_id process_from, channel_id channel_from,
-                      process_id process_to, channel_id channel_to,
+      static std::shared_ptr<serialization::promise<void>> unbind(process_id process_from, socket_id socket_from,
+                      process_id process_to, socket_id socket_to,
                       direction direction) {
         return serialization::promise<void>::resolved();
       }
       
       static std::shared_ptr<serialization::promise<void>> monitor(process_id target,
-                                                            process_id monitor, channel_id monitor_channel) {
+                                                            process_id monitor, socket_id monitor_socket) {
         return serialization::promise<void>::resolved();
       }
       static std::shared_ptr<serialization::promise<void>> demonitor(process_id target,
-                                                              process_id monitor, channel_id monitor_channel) {
+                                                              process_id monitor, socket_id monitor_socket) {
         return serialization::promise<void>::resolved();
       }
 
