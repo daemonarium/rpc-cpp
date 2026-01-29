@@ -7,7 +7,6 @@
 #include "promise.hpp"
 #include <tuple>
 #include <functional>
-#include <sstream>
 #include <exception>
 #include <set>
 
