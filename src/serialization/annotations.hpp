@@ -18,6 +18,29 @@ namespace serialization {
   static consteval auto dynamic() {
     return dynamic_annotation{};
   }
+
+  static consteval bool is_dynamic(auto&& member) {
+    auto annotations = std::meta::annotations_of(member);
+    auto it = std::find_if(annotations.begin(), annotations.end(), [&](auto&& annotation) {
+      return std::meta::type_of(annotation) == ^^serialization::dynamic_annotation;
+    });
+    return it != annotations.end();
+  }
+
+  struct message_annotation {    
+  };
+
+  static consteval auto message() {
+    return message_annotation{};
+  }
+
+  static consteval bool is_message(auto&& member) {
+    auto annotations = std::meta::annotations_of(member);
+    auto it = std::find_if(annotations.begin(), annotations.end(), [&](auto&& annotation) {
+      return std::meta::type_of(annotation) == ^^serialization::message_annotation;
+    });
+    return it != annotations.end();
+  }
   
   class [[=serialization::dynamic()]] type_annotation {
     public:
@@ -91,12 +114,5 @@ namespace serialization {
     return it != annotations.end();        
   }
 
-  static consteval bool is_dynamic(auto&& member) {
-    auto annotations = std::meta::annotations_of(member);
-    auto it = std::find_if(annotations.begin(), annotations.end(), [&](auto&& annotation) {
-      return std::meta::type_of(annotation) == ^^serialization::dynamic_annotation;
-    });
-    return it != annotations.end();
-  }
 
 }

@@ -47,7 +47,8 @@ namespace serialization {
         Pointer = 11,
         Map = 12,
         Function = 16,
-        Method = 17,        
+        Method = 17,       
+        Message = 18 
       };
 
       struct member {
@@ -411,7 +412,14 @@ namespace serialization {
       }      
       std::shared_ptr<type_description> type = registry.get_type(name);
       if(type) return type;
-      type = std::make_shared<type_description>(std::string(name), is_dynamic(^^T) ? type_description::Kind::DynamicObject : type_description::Kind::Object);
+      type = std::make_shared<type_description>(std::string(name), 
+        is_message(^^T) 
+          ? type_description::Kind::Message 
+          : (is_dynamic(^^T) 
+              ? type_description::Kind::DynamicObject 
+              : type_description::Kind::Object
+            )
+      );
       type->type_index_ = std::type_index(typeid(T));
       registry.register_type(type);
       //describe_members<T, T, R>(type, value, registry); 
