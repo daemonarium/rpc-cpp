@@ -8,7 +8,7 @@ serialization::type_registry registry;
 
 void register_all();
 
-extern "C" size_t rpc_description(char** buffer) {  
+extern "C" size_t rpc_description(std::uint32_t socket, char** buffer) {  
   serialization::type_description::create(serialization::read_annotation(), registry);
   register_all();
   std::ostringstream output_stream;
@@ -29,7 +29,8 @@ extern "C" size_t rpc_description(char** buffer) {
 extern "C" __attribute__((import_module("waos"), import_name("waos_socket_flush")))
 void waos_socket_flush(std::uint32_t socket);
 
-
+extern "C" __attribute__((import_module("waos"), import_name("waos_socket_input_drain")))
+void waos_socket_input_drain(std::uint32_t socket);
 
 extern "C" void waos_socket_data(std::uint32_t socket) {
 
@@ -74,7 +75,7 @@ extern "C" void waos_socket_data(std::uint32_t socket) {
 
 }
 
-extern "C" void waos_socket_drain(int socket) {
+extern "C" void waos_socket_output_drain(int socket) {
   if(socket != 0) { // ignore for now
     return;
   }

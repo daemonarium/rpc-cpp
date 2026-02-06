@@ -47,7 +47,7 @@ if(WASM)
       -sALLOW_MEMORY_GROWTH=1
       -sINITIAL_MEMORY=640kB
       -sTOTAL_STACK=20000
-      -sEXPORTED_FUNCTIONS=_rpc_description,_start,_malloc,_waos_socket_data,_waos_socket_drain
+      -sEXPORTED_FUNCTIONS=_rpc_description,_start,_malloc,_waos_socket_data,_waos_socket_output_drain
       -sERROR_ON_UNDEFINED_SYMBOLS=0
       -Wl,--allow-undefined-file=${CMAKE_SOURCE_DIR}/cpp-rpc/src/examples/modules/allowed-undefined-symbols.syms
     )
