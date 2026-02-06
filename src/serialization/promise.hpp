@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <exception>
+#include <coroutine>
 #include "type_concepts.hpp"
 
 namespace serialization {
@@ -354,5 +355,149 @@ namespace serialization {
         to->resolve();
       });
     }
+  };
+
+  // ========== CO_AWAIT SUPPORT ==========
+  
+  // Awaiter class for co_await support
+  template<typename T>
+  class promise_awaiter {
+  private:
+    std::shared_ptr<promise<T>> promise_ptr;
+    
+  public:
+    explicit promise_awaiter(std::shared_ptr<promise<T>> p) : promise_ptr(p) {}
+    
+    bool await_ready() const noexcept {
+      return promise_ptr->state != promise_state::pending;
+    }
+    
+    void await_suspend(std::coroutine_handle<> handle) {
+      promise_ptr->on_resolved([handle](T&) {
+        handle.resume();
+      });
+      promise_ptr->on_rejected([handle](std::exception_ptr) {
+        handle.resume();
+      });
+    }
+    
+    T await_resume() {
+      if (promise_ptr->state == promise_state::rejected) {
+        std::rethrow_exception(promise_ptr->exception);
+      }
+      return promise_ptr->result;
+    }
+  };
+
+  // Specialization for void
+  template<>
+  class promise_awaiter<void> {
+  private:
+    std::shared_ptr<promise<void>> promise_ptr;
+    
+  public:
+    explicit promise_awaiter(std::shared_ptr<promise<void>> p) : promise_ptr(p) {}
+    
+    bool await_ready() const noexcept {
+      return promise_ptr->state != promise_state::pending;
+    }
+    
+    void await_suspend(std::coroutine_handle<> handle) {
+      promise_ptr->on_resolved([handle]() {
+        handle.resume();
+      });
+      promise_ptr->on_rejected([handle](std::exception_ptr) {
+        handle.resume();
+      });
+    }
+    
+    void await_resume() {
+      if (promise_ptr->state == promise_state::rejected) {
+        std::rethrow_exception(promise_ptr->exception);
+      }
+    }
+  };
+
+  // Free function operator co_await for std::shared_ptr<promise<T>>
+  template<typename T>
+  promise_awaiter<T> operator co_await(std::shared_ptr<promise<T>> p) {
+    return promise_awaiter<T>(p);
+  }
+
+  // ========== CO_RETURN SUPPORT ==========
+  
+  // Coroutine promise type for co_return support
+  // Usage example:
+  //   std::shared_ptr<promise<int>> my_coroutine() {
+  //     using promise_type = coroutine_promise<int>;
+  //     auto result = co_await some_async_operation();
+  //     co_return result + 1;  // Automatically resolves promise
+  //   }
+  template<typename T>
+  class coroutine_promise {
+  private:
+    std::shared_ptr<promise<T>> result_promise;
+    
+  public:
+    coroutine_promise() : result_promise(std::make_shared<promise<T>>()) {}
+    
+    std::shared_ptr<promise<T>> get_return_object() {
+      return result_promise;
+    }
+    
+    std::suspend_never initial_suspend() const noexcept {
+      return {};
+    }
+    
+    std::suspend_never final_suspend() const noexcept {
+      return {};
+    }
+    
+    void return_value(T value) {
+      result_promise->resolve(std::move(value));
+    }
+    
+    void unhandled_exception() {
+      result_promise->reject(std::current_exception());
+    }
+  };
+
+  // Specialization for void
+  template<>
+  class coroutine_promise<void> {
+  private:
+    std::shared_ptr<promise<void>> result_promise;
+    
+  public:
+    coroutine_promise() : result_promise(std::make_shared<promise<void>>()) {}
+    
+    std::shared_ptr<promise<void>> get_return_object() {
+      return result_promise;
+    }
+    
+    std::suspend_never initial_suspend() const noexcept {
+      return {};
+    }
+    
+    std::suspend_never final_suspend() const noexcept {
+      return {};
+    }
+    
+    void return_void() {
+      result_promise->resolve();
+    }
+    
+    void unhandled_exception() {
+      result_promise->reject(std::current_exception());
+    }
+  };
+}
+
+// Specialization of std::coroutine_traits for std::shared_ptr<serialization::promise<T>>
+// This allows functions returning std::shared_ptr<promise<T>> to be coroutines
+namespace std {
+  template<typename T, typename... Args>
+  struct coroutine_traits<std::shared_ptr<serialization::promise<T>>, Args...> {
+    using promise_type = serialization::coroutine_promise<T>;
   };
 }

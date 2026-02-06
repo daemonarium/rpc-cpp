@@ -73,11 +73,11 @@ namespace waos {
     virtual ~process_event() {}
   };
 
-  struct [[=serialization::dynamic()]] process_killed_event : process_event {  
+  struct [[=serialization::message()]] process_killed_event : process_event {  
     virtual ~process_killed_event() {}    
   };
 
-  struct [[=serialization::dynamic()]] process_error_event : process_event {
+  struct [[=serialization::message()]] process_error_event : process_event {
     virtual ~process_error_event() {}
     std::string error;
   };
