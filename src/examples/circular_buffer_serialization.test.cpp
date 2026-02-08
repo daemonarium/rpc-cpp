@@ -44,7 +44,7 @@ int main() {
   writer.write_rest();
 
   serialization::circular_buffer_reader reader(buffer);
-  reader.register_deserialization_function<Sample>();
+  reader.register_deserialize_typed_function<Sample>();
 
   std::uint64_t u64 = 0;
   std::int64_t i64 = 0;

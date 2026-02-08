@@ -3,13 +3,14 @@
 #include <unordered_map>
 #include <typeindex>
 #include "type_description.hpp"
+#include "rpc.hpp"
 
 namespace serialization {
 
   class type_registry {
     public:
 
-      type_registry()
+      type_registry(bool rpc = true)
         : types_({
           std::make_shared<type_description>("void", type_description::Kind::Void),
           std::make_shared<type_description>("uint", type_description::Kind::UnsignedInteger),
@@ -20,7 +21,15 @@ namespace serialization {
           std::make_shared<type_description>("binary", type_description::Kind::Binary),
           std::make_shared<type_description>("pointer", type_description::Kind::Pointer),
           std::make_shared<type_description>("map", type_description::Kind::Map),          
-        }) {          
+        }) { 
+        if(rpc) {
+          rpc_request request;
+          rpc_response response;
+          rpc_error error;
+          register_type(serialization::type_description::create(request, *this));
+          register_type(serialization::type_description::create(response, *this));
+          register_type(serialization::type_description::create(error, *this));
+        }
         reindex();
       }
       type_registry(const std::vector<std::shared_ptr<type_description>>& types)

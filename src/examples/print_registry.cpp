@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
   std::istringstream input_stream(std::string(buffer.data(), size), std::ios::binary);
   std::cout << "File size: " << size << std::endl;
   serialization::stream_reader reader(input_stream);
-  reader.register_deserialization_function<serialization::type_description>();
+  reader.register_deserialize_typed_function<serialization::type_description>();
   serialization::type_registry registry;
   deserialize(reader, registry);
   std::cout << "Read rest: " << input_stream.tellg() << std::endl;

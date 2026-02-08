@@ -28,7 +28,8 @@ namespace serialization {
   class rpc_client {
 
     public:      
-      rpc_client(Wr& writer, std::function<void()> sender) : writer_(writer), sender_(sender) {}
+      rpc_client(Wr& writer, std::function<void()> before_send, std::function<void()> sender) 
+        : writer_(writer), before_send_(before_send), sender_(sender) {}
       ~rpc_client() {}    
 
 /*       template <typename Rt, typename... Args>
@@ -62,6 +63,7 @@ namespace serialization {
           }
           response_handlers_.erase(request_id);
         };
+        before_send_();
         writer_.write_u64(request_id);
         write_call(writer_, function_id, args...);
         sender_();
@@ -83,6 +85,7 @@ namespace serialization {
           }
           response_handlers_.erase(request_id);
         };
+        before_send_();
         writer_.write_u64(request_id);
         write_call(writer_, function_id, args...);
         sender_();
@@ -105,6 +108,7 @@ namespace serialization {
           }
           response_handlers_.erase(request_id);
         };
+        before_send_();
         writer_.write_u64(request_id);
         write_method_call(writer_, function_id, id, args...);
         sender_();
@@ -126,6 +130,7 @@ namespace serialization {
           }
           response_handlers_.erase(request_id);
         };
+        before_send_();
         writer_.write_u64(request_id);
         write_method_call(writer_, function_id, id, args...);
         sender_();
@@ -189,7 +194,8 @@ namespace serialization {
       std::unordered_map<std::uint32_t, std::function<void(Rd&)>> response_handlers_;
       std::uint32_t last_request_id_ = 0;
       Wr& writer_;
-      std::function<void()> sender_;
+      std::function<void()> before_send_;
+      std::function<void()> sender_;      
 
   };
 

@@ -86,7 +86,7 @@ namespace serialization {
         size_t index = read_uvar_int();
         void* ptr = &data;
         debug("  read_typed type %d", index);
-        deserialize_functions_[index](ptr);        
+        deserialize_typed_functions_[index](ptr);        
       }
 
       void read_typed(std::weak_ptr<void>& data) {
@@ -97,16 +97,50 @@ namespace serialization {
         debug("  read_weak_ptr result %p", data.lock().get());
       }
 
-      void register_deserialization_function(std::type_index type, 
+      template <typename T>
+      void read_message(std::shared_ptr<T>& data) {
+        debug("read_message");
+        size_t index = read_uvar_int();
+        void* ptr = &data;
+        debug("  read_message type %d", index);
+        deserialize_message_functions_[index](ptr);        
+      }
+
+      void read_message(std::weak_ptr<void>& data) {
+        debug("read_weak_ptr_message");
+        std::shared_ptr<void> shared;
+        read_message(shared);
+        data = shared;
+        debug("  read_weak_ptr_message result %p", data.lock().get());
+      }
+
+      void register_deserialize_typed_function(std::type_index type, 
           std::function<void(void*)> deserialize) {
-        type_indexes_[type] = deserialize_functions_.size();
-        deserialize_functions_.push_back(deserialize);
+        typed_indexes_[type] = deserialize_typed_functions_.size();
+        deserialize_typed_functions_.push_back(deserialize);
       }
 
       template <typename T>
-      void register_deserialization_function() {
+      void register_deserialize_typed_function() {
         auto type = std::type_index(typeid(T));        
-        register_deserialization_function(type, [&reader = *this](void* ptr) {
+        register_deserialize_typed_function(type, [&reader = *this](void* ptr) {
+          std::shared_ptr<T>& shared = *((std::shared_ptr<T>*)ptr);
+          std::shared_ptr<T> data = std::make_shared<T>();
+          deserialize(reader, *data);
+          shared = data;
+        });
+      }
+
+      void register_deserialize_message_function(std::type_index type, 
+          std::function<void(void*)> deserialize) {
+        message_indexes_[type] = deserialize_message_functions_.size();
+        deserialize_message_functions_.push_back(deserialize);
+      }
+
+      template <typename T>
+      void register_deserialize_message_function() {
+        auto type = std::type_index(typeid(T));        
+        register_deserialize_message_function(type, [&reader = *this](void* ptr) {
           std::shared_ptr<T>& shared = *((std::shared_ptr<T>*)ptr);
           std::shared_ptr<T> data = std::make_shared<T>();
           deserialize(reader, *data);
@@ -175,8 +209,11 @@ namespace serialization {
       using AssignAfterRead = std::function<void(std::shared_ptr<void>&)>;
       std::vector<std::pair<std::vector<AssignAfterRead>, ReadLater>> read_later_;
 
-      std::vector<std::function<void(void*)>> deserialize_functions_;
-      std::unordered_map<std::type_index, size_t> type_indexes_;
+      std::vector<std::function<void(void*)>> deserialize_typed_functions_;
+      std::unordered_map<std::type_index, size_t> typed_indexes_;
+
+      std::vector<std::function<void(void*)>> deserialize_message_functions_;
+      std::unordered_map<std::type_index, size_t> message_indexes_;
 
       #ifdef SERIALIZATION_STREAM_READER_DEBUG
       uint32_t indent_ = 0;

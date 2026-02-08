@@ -7,7 +7,6 @@
 
 namespace waos {
 
-
   using binary = std::vector<std::uint8_t>;
 
   class kernel {

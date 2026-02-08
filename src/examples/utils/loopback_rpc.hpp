@@ -37,7 +37,7 @@ class loopback_rpc {
   loopback_rpc(bool print_messagesp = false) :       
       writer(output_stream), reader(input_stream),
       rpc_server(), 
-      rpc_client(std::make_shared<rpc_client_type>(writer, [this]() { this->handle_call(); })),
+      rpc_client(std::make_shared<rpc_client_type>(writer, [this]() { }, [this]() { this->handle_call(); })),
       registry(),
       print_messages(print_messagesp) {
 

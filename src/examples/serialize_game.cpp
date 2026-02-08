@@ -21,8 +21,8 @@ int main(int argc, char** argv) {
     std::make_shared<Enemy>()
   };
 
-  sw2.register_serialization_function<Player>();
-  sw2.register_serialization_function<Enemy>();
+  sw2.register_serialize_typed_function<Player>();
+  sw2.register_serialize_typed_function<Enemy>();
 
   serialization::serialize(sw2, gameObjects);
   sw2.write_rest(); 
@@ -32,8 +32,8 @@ int main(int argc, char** argv) {
 
   std::istringstream is2(s2);
   serialization::stream_reader sr2(is2);
-  sr2.register_deserialization_function<Player>();
-  sr2.register_deserialization_function<Enemy>();
+  sr2.register_deserialize_typed_function<Player>();
+  sr2.register_deserialize_typed_function<Enemy>();
   std::vector<std::shared_ptr<GameObject>> gameObjects2;
   serialization::deserialize(sr2, gameObjects2);
   sr2.read_rest();

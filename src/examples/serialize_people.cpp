@@ -45,14 +45,14 @@ int main(int argc, char** argv) {
   print_people(people);
  
   std::cout << "Debug Serializing..." << std::endl << std::endl;
-  dw.register_serialization_function<Person>();
+  dw.register_serialize_typed_function<Person>();
   serialization::serialize(dw, john);
   dw.write_rest();
 
   std::cout << "Serializing..." << std::endl << std::endl;
   std::ostringstream ss;
   serialization::stream_writer sw(ss);
-  sw.register_serialization_function<Person>();
+  sw.register_serialize_typed_function<Person>();
   serialization::serialize(sw, john);
   sw.write_rest();
 
@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
   std::cout << "Deserializing..." << std::endl << std::endl;
   std::istringstream is(s);
   serialization::stream_reader sr(is);
-  sr.register_deserialization_function<Person>();
+  sr.register_deserialize_typed_function<Person>();
   std::shared_ptr<Person> p;
   serialization::deserialize(sr, p);
   sr.read_rest();

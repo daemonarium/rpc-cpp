@@ -4,11 +4,11 @@
 #include <io/socket.h>
 
 rpc_server_type rpc_server;
-serialization::type_registry registry;
+serialization::type_registry registry(true);
 
 void register_all();
 
-extern "C" size_t rpc_description(std::uint32_t socket, char** buffer) {  
+extern "C" size_t rpc_description(std::uint32_t socket, char** buffer) {
   serialization::type_description::create(serialization::read_annotation(), registry);
   register_all();
   std::ostringstream output_stream;

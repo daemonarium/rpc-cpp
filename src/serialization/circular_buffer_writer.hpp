@@ -76,13 +76,25 @@ namespace serialization {
       template <typename T>
       void write_typed(std::shared_ptr<T> data) {
         auto type_index = std::type_index(typeid(*data));
-        auto it = type_indexes_.find(type_index);
-        if(it == type_indexes_.end()) {
+        auto it = typed_indexes_.find(type_index);
+        if(it == typed_indexes_.end()) {
           throw std::runtime_error("Type not registered");
         }
         size_t index = it->second;
         write_uvar_int(index);
-        serialize_functions_[index](&data);
+        serialize_typed_functions_[index](&data);
+      }
+
+      template <typename T>
+      void write_message(std::shared_ptr<T> data) {
+        auto type_index = std::type_index(typeid(*data));
+        auto it = message_indexes_.find(type_index);
+        if(it == message_indexes_.end()) {
+          throw std::runtime_error("Type not registered");
+        }
+        size_t index = it->second;
+        write_uvar_int(index);
+        serialize_message_functions_[index](&data);
       }
 
       void save_offset() { /* no-op */ }
@@ -96,16 +108,31 @@ namespace serialization {
         }
       }
 
-      void register_serialization_function(std::type_index type,
+      void register_serialize_typed_function(std::type_index type,
           std::function<void(void*)> serialize) {
-        type_indexes_[type] = serialize_functions_.size();
-        serialize_functions_.push_back(serialize);
+        typed_indexes_[type] = serialize_typed_functions_.size();
+        serialize_typed_functions_.push_back(serialize);
       }
 
       template <typename T>
-      void register_serialization_function() {
+      void register_serialize_typed_function() {
         auto type = std::type_index(typeid(T));
-        register_serialization_function(type, [&writer = *this](void* ptr) {
+        register_serialize_typed_function(type, [&writer = *this](void* ptr) {
+          std::shared_ptr<T> data = *((std::shared_ptr<T>*)ptr);
+          serialize(writer, *data);
+        });
+      }
+
+      void register_serialize_message_function(std::type_index type,
+          std::function<void(void*)> serialize) {
+        message_indexes_[type] = serialize_message_functions_.size();
+        serialize_message_functions_.push_back(serialize);
+      }
+
+      template <typename T>
+      void register_serialize_message_function() {
+        auto type = std::type_index(typeid(T));
+        register_serialize_message_function(type, [&writer = *this](void* ptr) {
           std::shared_ptr<T> data = *((std::shared_ptr<T>*)ptr);
           serialize(writer, *data);
         });
@@ -152,8 +179,11 @@ namespace serialization {
       std::vector<std::shared_ptr<void>> written_pointers_;
       std::vector<std::pair<std::shared_ptr<void>, WriteLater>> write_later_;
 
-      std::vector<std::function<void(void*)>> serialize_functions_;
-      std::unordered_map<std::type_index, size_t> type_indexes_;
+      std::vector<std::function<void(void*)>> serialize_typed_functions_;
+      std::unordered_map<std::type_index, size_t> typed_indexes_;
+
+      std::vector<std::function<void(void*)>> serialize_message_functions_;
+      std::unordered_map<std::type_index, size_t> message_indexes_;
 
       void ensure_writable(size_t bytes) {
         size_t available = circular_buffer_reserve_for_writing(buffer_, bytes + write_offset_);

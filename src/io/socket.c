@@ -213,7 +213,7 @@ size_t socket_write_capacity(int socket) {
 
 void socket_flush(int socket) __attribute__((
   __import_module__("waos"),
-  __import_name__("socket_flush")
+  __import_name__("waos_socket_flush")
 ));
 
 __attribute__((export_name("waos_socket_handle_data")))
