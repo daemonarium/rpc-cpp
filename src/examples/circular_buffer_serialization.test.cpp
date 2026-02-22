@@ -31,7 +31,7 @@ int main() {
   assert(buffer);
 
   serialization::circular_buffer_writer writer(buffer);
-  writer.register_serialization_function<Sample>();
+  writer.register_serialize_typed_function<Sample>();
 
   auto sample = std::make_shared<Sample>(Sample{42, "answer"});
 

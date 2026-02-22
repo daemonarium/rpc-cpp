@@ -5,6 +5,7 @@
 #include "deserialize.hpp"
 #include "type_concepts.hpp"
 #include "promise.hpp"
+#include "rpc_exception.hpp"
 #include <tuple>
 #include <functional>
 #include <sstream>
@@ -14,15 +15,6 @@
 //#define RPC_SERVER_DEBUG
 
 namespace serialization {
-
-  class rpc_exception : public std::exception {
-    public:
-      rpc_exception(const std::string& message) : message_(message) {}
-      ~rpc_exception() {}
-      const char* what() const noexcept override { return message_.c_str(); }
-    private:
-      std::string message_;
-  };
 
   template <Reader Rd, Writer Wr>
   class rpc_client {

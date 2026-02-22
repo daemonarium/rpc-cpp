@@ -120,7 +120,7 @@ namespace serialization {
       template <typename T>
       void register_serialize_typed_function() {
         auto type = std::type_index(typeid(T));        
-        register_serialization_function(type, [&writer = *this](void* ptr) {
+        register_serialize_typed_function(type, [&writer = *this](void* ptr) {
           std::shared_ptr<T> data = *((std::shared_ptr<T>*)ptr);
           serialize(writer, *data);
         });

@@ -19,7 +19,7 @@ int main(int argc, char** argv) {
 
   std::ostringstream output_stream;
   serialization::stream_writer writer(output_stream);
-  writer.register_serialization_function<serialization::type_description>();
+  writer.register_serialize_typed_function<serialization::type_description>();
   serialize(writer, registry);
   writer.write_rest();  
   std::cout << "Serialized registry:" << std::endl;

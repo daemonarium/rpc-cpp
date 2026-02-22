@@ -60,8 +60,13 @@ namespace serialization {
       }
 
       template <typename T>
-      void register_serialization_function() { 
+      void register_serialize_typed_function() { 
         throw new std::runtime_error("registerSerializationFunction not implemented");
+      }
+
+      template <typename T>
+      void register_serialize_message_function() { 
+        throw new std::runtime_error("registerSerializeMessageFunction not implemented");
       }
       
       using WriteLater = std::function<void()>;
