@@ -7,7 +7,7 @@
 #include "type_concepts.hpp"
 #include "promise.hpp"
 #include "rpc_exception.hpp"
-#include <io/socket.h>
+#include <socket/socket.h>
 #include <memory>
 #include <unordered_map>
 #include <functional>

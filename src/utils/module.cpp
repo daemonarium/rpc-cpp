@@ -1,7 +1,7 @@
 #include "module.hpp"
 
 #include <serialization/stream_writer.hpp>
-#include <io/socket.h>
+#include <socket/socket.h>
 #include <memory>
 #include <utils/socket_handlers.hpp>
 
