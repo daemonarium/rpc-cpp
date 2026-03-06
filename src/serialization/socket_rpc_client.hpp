@@ -63,12 +63,18 @@ namespace serialization {
         auto p = std::make_shared<promise<void>>();
         std::uint64_t request_id = last_request_id_++;
         
+        printf("call request: request_id=%d, function_id=%d\n", request_id, function_id);
+
         response_handlers_[request_id] = [p, request_id, this](circular_buffer_reader& reader) {
+          printf("call response: request_id=%d\n", request_id);
           std::string error_message;
-          bool success = read_result(reader, error_message);
+          bool success = read_result(reader, error_message);                    
           if(success) {
+            printf("call response: request_id=%d, success=true\n", request_id);
             p->resolve();
           } else {
+            printf("call response: request_id=%d, success=false\n", request_id);
+            printf("call response: error_message=%s\n", error_message.c_str());
             p->reject(std::make_exception_ptr(rpc_exception(error_message)));
           }
           response_handlers_.erase(request_id);

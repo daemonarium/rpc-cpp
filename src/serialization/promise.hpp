@@ -247,7 +247,9 @@ namespace serialization {
       if (state != promise_state::pending) return;
       exception = e;
       state = promise_state::rejected;
+      printf("reject: exception\n");
       for (auto& cb : reject_callbacks) {
+        printf("reject: calling callback\n");
         cb(e);
       }
       resolve_callbacks.clear();
@@ -407,12 +409,14 @@ namespace serialization {
         handle.resume();
       });
       promise_ptr->on_rejected([handle](std::exception_ptr) {
+        printf("await_suspend: rejected\n");
         handle.resume();
       });
     }
     
     void await_resume() {
       if (promise_ptr->state == promise_state::rejected) {
+        printf("await_resume: rejected rethrowing\n");
         std::rethrow_exception(promise_ptr->exception);
       }
     }

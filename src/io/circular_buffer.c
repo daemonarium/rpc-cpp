@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include "circular_buffer.h"
 
-#define HEADER_SIZE 8
+#define HEADER_SIZE 12
 
 size_t default_new_length(size_t requested_length) {
   // returns nearest power of two
@@ -141,6 +141,23 @@ size_t circular_buffer_data_poke(struct circular_buffer_data* buffer, size_t off
   return write_length - offset;
 }
 
+/* 
+#include <stdio.h>
+
+void print_hex(const void* data, size_t size) {
+  const unsigned char* bytes = data;
+  for (size_t i = 0; i < size; i += 16) {
+    printf("%04X: ", (unsigned int)i);
+    for (size_t j = 0; j < 16; j++) {
+      if (i + j < size) {
+        printf("%02X ", bytes[i + j]);
+      }
+    }
+    printf("\n");
+  }
+}
+ */
+ 
 size_t circular_buffer_data_peek(struct circular_buffer_data* buffer, size_t offset, void* dest, size_t bytes) {
   size_t read_request = bytes + offset;
   size_t readable_bytes = circular_buffer_data_readable_bytes(buffer);
@@ -151,6 +168,8 @@ size_t circular_buffer_data_peek(struct circular_buffer_data* buffer, size_t off
   size_t read_at_end = source_buffer_length - buffer->read_offset;
   if(read_length < read_at_end) read_at_end = read_length;
   size_t read_at_start = read_length - read_at_end;
+  /* printf("buffer content:\n");
+  print_hex(buffer->data, source_buffer_length); */
   if(read_at_end > offset) {
     memcpy(dest, buffer->data + buffer->read_offset + offset, read_at_end - offset);
     memcpy(dest + read_at_end - offset, buffer->data, read_at_start);
@@ -158,6 +177,8 @@ size_t circular_buffer_data_peek(struct circular_buffer_data* buffer, size_t off
     size_t offset_rest = (offset - read_at_end);
     memcpy(dest, buffer->data + offset_rest, read_at_start - offset_rest);
   }
+  /* printf("read content:\n");
+  print_hex(dest, read_length - offset); */
   return read_length - offset;
 }
 
