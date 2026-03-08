@@ -40,14 +40,18 @@ namespace serialization {
       std::shared_ptr<promise<Rt>> call(std::uint64_t function_id, Args... args) {
         auto p = std::make_shared<promise<Rt>>();
         std::uint64_t request_id = last_request_id_++;
-        
+        printf("call request: request_id=%d, function_id=%d\n", request_id, function_id);
         response_handlers_[request_id] = [p, request_id, this](circular_buffer_reader& reader) {
+          printf("call response: request_id=%d\n", request_id);
           Rt result;
           std::string error_message;
           bool success = read_result(reader, result, error_message);
           if(success) {
+            printf("call response: request_id=%d, success=true\n", request_id);
             p->resolve(result);
           } else {
+            printf("call response: request_id=%d, success=false\n", request_id);
+            printf("call response: error_message=%s\n", error_message.c_str());
             p->reject(std::make_exception_ptr(rpc_exception(error_message)));
           }
           response_handlers_.erase(request_id);
@@ -62,19 +66,13 @@ namespace serialization {
       std::shared_ptr<promise<void>> call(std::uint64_t function_id, Args... args) {
         auto p = std::make_shared<promise<void>>();
         std::uint64_t request_id = last_request_id_++;
-        
-        printf("call request: request_id=%d, function_id=%d\n", request_id, function_id);
 
-        response_handlers_[request_id] = [p, request_id, this](circular_buffer_reader& reader) {
-          printf("call response: request_id=%d\n", request_id);
+        response_handlers_[request_id] = [p, request_id, this](circular_buffer_reader& reader) {          
           std::string error_message;
           bool success = read_result(reader, error_message);                    
           if(success) {
-            printf("call response: request_id=%d, success=true\n", request_id);
             p->resolve();
           } else {
-            printf("call response: request_id=%d, success=false\n", request_id);
-            printf("call response: error_message=%s\n", error_message.c_str());
             p->reject(std::make_exception_ptr(rpc_exception(error_message)));
           }
           response_handlers_.erase(request_id);
@@ -130,6 +128,26 @@ namespace serialization {
       // Handle incoming data from socket
       void handle_data() {
         while(true) {
+
+          auto all = circular_buffer_readable_bytes(&socket_->input_buffer);
+          char* buffer = new char[all];
+          circular_buffer_peek(&socket_->input_buffer, 0, buffer, all);
+          
+          // Added while debugging
+          printf("handle_data: buffer content:\n");
+          const unsigned char* bytes = (unsigned char*)buffer;
+          for (size_t i = 0; i < all; i += 16) {
+            if(i>32 && i< all-32) continue;            
+            printf("%04X: ", (unsigned int)i);
+            for (size_t j = 0; j < 16; j++) {
+              if (i + j < all) {
+                printf("%02X ", bytes[i + j]);
+              }
+            }
+            printf("\n");
+          }
+          delete[] buffer;
+          
           // Read one length-prefixed request from socket input
           uint32_t req_len = 0;
           if (circular_buffer_readable_bytes(&socket_->input_buffer) < sizeof(req_len)) {
@@ -139,16 +157,19 @@ namespace serialization {
           circular_buffer_peek(&socket_->input_buffer, 0, &req_len, sizeof(req_len));
           size_t available = circular_buffer_readable_bytes(&socket_->input_buffer);
           if (available < sizeof(req_len) + req_len) {
+            printf("handle_data: not enough data yet, available=%d, req_len=%d\n", available, req_len);
             circular_buffer_reserve_for_reading(&socket_->input_buffer, req_len + sizeof(req_len));
             waos_socket_input_drain(socket_id_);
             return; // wait for full message
           }
 
+          printf("handle_data: consuming length prefix!\n");
           // Consume length prefix
           circular_buffer_skip_read(&socket_->input_buffer, sizeof(req_len));
           // Set reader offset to 0
           reader_->read_offset_ = 0;
 
+          printf("handle_data: handling response!\n");
           // Handle response
           handle_response(*reader_);
 
@@ -244,9 +265,11 @@ namespace serialization {
       void handle_response(circular_buffer_reader& reader) {
         std::uint64_t request_id;
         reader.read_u64(request_id);
+        printf("handle_response: request_id=%d\n", request_id);
         if(response_handlers_.find(request_id) != response_handlers_.end()) {
           response_handlers_[request_id](reader);
         } else {
+          printf("handle_response: response handler not found\n");
           throw std::runtime_error("Response handler " + std::to_string(request_id) + " not found");
         }
       }

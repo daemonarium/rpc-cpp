@@ -39,6 +39,11 @@ struct circular_buffer* circular_buffer_create(size_t initial_size, new_length_c
   return circular_buffer_init(buffer, initial_size, new_length);
 }
 
+void circular_buffer_deinit(struct circular_buffer* buffer) {
+  free(buffer->data);
+  buffer->data = NULL;
+}
+
 void circular_buffer_destroy(struct circular_buffer* buffer) {
   free(buffer->data);
   free(buffer);

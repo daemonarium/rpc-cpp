@@ -52,12 +52,20 @@ struct circular_buffer* circular_buffer_init(struct circular_buffer* buffer,
                                              size_t initial_size, new_length_callback new_length);
 
 /**
- * Destroys the given circular buffer.
+ * Destroys the given circular buffer created with circular_buffer_create.
+ * Frees both the data and the buffer struct itself.
  *
  * @param buffer The buffer to destroy.
- * @return The newly created buffer.
  */
 void circular_buffer_destroy(struct circular_buffer *buffer);
+
+/**
+ * Deinitializes the given circular buffer initialized with circular_buffer_init.
+ * Frees only the data, NOT the buffer struct (which is owned by the caller).
+ *
+ * @param buffer The buffer to deinitialize.
+ */
+void circular_buffer_deinit(struct circular_buffer *buffer);
 
 /**
  * Returns the number of bytes that can be read from the buffer.
