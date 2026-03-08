@@ -135,21 +135,13 @@ void socket_get_options(int socket, struct socket_options *options) {
   options->drain_event_callback = socket_info->drain_event_callback;
 }
 
-#include <stdio.h>
-
 void socket_close(int socket) {
-  printf("socket_close: socket=%d\n", socket);
   struct socket_info *socket_info = get_socket_info(socket);
-  printf("socket_close: socket=%d\n", socket);
   if (socket_info->flags & SOCKET_FLAG_OPEN) {
     socket_info->flags = 0;
-    printf("socket_close: deinit input_buffer\n");
     circular_buffer_deinit(&socket_info->input_buffer);
-    printf("socket_close: deinit output_buffer\n");
     circular_buffer_deinit(&socket_info->output_buffer);
-    printf("socket_close: deinitialized buffers\n");
   }
-  printf("socket_close: returning\n");
 }
 
 size_t socket_readable_bytes(int socket) {
