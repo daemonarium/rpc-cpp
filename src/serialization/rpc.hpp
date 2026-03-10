@@ -8,14 +8,12 @@ namespace serialization {
 
   struct [[=serialization::message()]] rpc_request {
     std::uint64_t request_id;
-    std::uint16_t function_id;
-    binary arguments;
+    std::uint64_t function_id;
   };
 
   struct [[=serialization::message()]] rpc_response {
     std::uint64_t request_id;
     bool success = true;
-    binary result;    
   };
 
   struct [[=serialization::message()]] rpc_error {
