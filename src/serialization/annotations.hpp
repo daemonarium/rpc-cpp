@@ -41,7 +41,30 @@ namespace serialization {
     });
     return it != annotations.end();
   }
-  
+
+  struct exception_annotation {    
+  };
+
+  static consteval auto exception() {
+    return exception_annotation{};
+  }
+
+  template <typename T>
+  requires(std::is_class_v<T> && !(std::derived_from<T, std::exception> || std::derived_from<T, std::runtime_error>))
+  static consteval bool is_exception() {
+    auto annotations = std::meta::annotations_of(^^T);
+    auto it = std::find_if(annotations.begin(), annotations.end(), [&](auto&& annotation) {
+      return std::meta::type_of(annotation) == ^^serialization::exception_annotation;
+    });
+    return it != annotations.end();
+  }
+
+  template <typename T>
+  requires(std::is_class_v<T> && (std::derived_from<T, std::exception> || std::derived_from<T, std::runtime_error>))
+  static consteval bool is_exception() {
+    return true;
+  }
+
   class [[=serialization::dynamic()]] type_annotation {
     public:
       virtual ~type_annotation() {}

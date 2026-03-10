@@ -48,7 +48,8 @@ namespace serialization {
         Map = 12,
         Function = 16,
         Method = 17,       
-        Message = 18 
+        Message = 18,
+        Exception = 19
       };
 
       struct member {
@@ -417,7 +418,9 @@ namespace serialization {
           ? type_description::Kind::Message 
           : (is_dynamic(^^T) 
               ? type_description::Kind::DynamicObject 
-              : type_description::Kind::Object
+              : (is_exception<T>()
+                  ? type_description::Kind::Exception 
+                  : type_description::Kind::Object)
             )
       );
       type->type_index_ = std::type_index(typeid(T));
