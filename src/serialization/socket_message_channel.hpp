@@ -45,15 +45,28 @@ namespace serialization {
           deserialize(*reader_, msg);
           reader_->read_rest();
 
+          size_t payload_size = current_msg_len_ - reader_->read_offset_;
+
           auto it = message_handlers_.find(std::type_index(typeid(T)));
           if(it != message_handlers_.end()) {
-            it->second(&msg);
+            it->second(&msg, payload_size);
           }
+          // After handler returns, handle_data() does circular_buffer_skip_read(msg_len)
+          // which automatically skips any unread payload
         });
       }
 
+      // Send a complete message (no payload)
       template <typename T>
       void send_message(const T& message) {
+        begin_send(message);
+        commit_send();
+      }
+
+      // Begin sending a message with optional payload.
+      // After this call, write payload data to writer(), then call commit_send().
+      template <typename T>
+      circular_buffer_writer& begin_send(const T& message) {
         auto type = std::type_index(typeid(T));
         auto it = message_type_indexes_.find(type);
         if(it == message_type_indexes_.end()) {
@@ -66,23 +79,39 @@ namespace serialization {
         circular_buffer_poke(&socket_->output_buffer, 0, &placeholder, sizeof(placeholder));
         writer_->write_offset_ = sizeof(placeholder);
 
-        // Write message type index + serialized data
+        // Write message type index + serialized header
         writer_->write_u64(index);
         serialize(*writer_, message);
         writer_->write_rest();
 
-        // Write length prefix and flush
-        uint32_t payload_len = writer_->write_offset_ - sizeof(placeholder);
+        return *writer_;
+      }
+
+      // Commit a message started with begin_send. Writes length prefix and flushes.
+      void commit_send() {
+        uint32_t payload_len = writer_->write_offset_ - sizeof(uint32_t);
         circular_buffer_poke(&socket_->output_buffer, 0, &payload_len, sizeof(payload_len));
         circular_buffer_commit_write(&socket_->output_buffer, writer_->write_offset_);
         waos_socket_flush(socket_id_);
       }
 
+      // Register a handler that ignores payload
       template <typename T>
       void on_message(std::function<void(T&)> handler) {
-        message_handlers_[std::type_index(typeid(T))] = [handler](void* ptr) {
+        message_handlers_[std::type_index(typeid(T))] = [handler](void* ptr, size_t) {
           T& msg = *reinterpret_cast<T*>(ptr);
           handler(msg);
+        };
+      }
+
+      // Register a handler with payload size info.
+      // Handler can read payload_size bytes from reader() if payload_size > 0.
+      // Unread payload is automatically skipped after handler returns.
+      template <typename T>
+      void on_message(std::function<void(T&, size_t payload_size)> handler) {
+        message_handlers_[std::type_index(typeid(T))] = [handler](void* ptr, size_t payload_size) {
+          T& msg = *reinterpret_cast<T*>(ptr);
+          handler(msg, payload_size);
         };
       }
 
@@ -111,15 +140,17 @@ namespace serialization {
           reader_->read_u64(index);
 
           if(index >= dispatch_table_.size()) {
-            // Skip past this message's data
             circular_buffer_skip_read(&socket_->input_buffer, msg_len);
             throw std::runtime_error("Unknown message type index: " + std::to_string(index));
           }
 
+          // Store message length for payload size calculation in dispatch
+          current_msg_len_ = msg_len;
+
           // Dispatch to the correct handler
           dispatch_table_[index]();
 
-          // Skip read bytes
+          // Skip entire message (including any unread payload)
           circular_buffer_skip_read(&socket_->input_buffer, msg_len);
 
           if(!circular_buffer_readable_bytes(&socket_->input_buffer)) {
@@ -144,8 +175,11 @@ namespace serialization {
       // Message type index lookup for send_message
       std::unordered_map<std::type_index, size_t> message_type_indexes_;
 
-      // User-registered handlers by type
-      std::unordered_map<std::type_index, std::function<void(void*)>> message_handlers_;
+      // User-registered handlers by type: (void* msg_ptr, size_t payload_size)
+      std::unordered_map<std::type_index, std::function<void(void*, size_t)>> message_handlers_;
+
+      // Current message length, set in handle_data() before dispatch
+      size_t current_msg_len_ = 0;
   };
 
 }
