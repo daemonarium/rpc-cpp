@@ -252,47 +252,49 @@ size_t circular_buffer_peek_uvarint(struct circular_buffer *buffer, size_t offse
   } else if ((number[0] & 0x40) == 0) { // 14 bit number encoded in 2 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
     if(second_read == 0) return 0;
-    *value = ((number[0] & 0x3F) << 8) | number[1];
+    *value = (((uint64_t)number[0] & 0x3F) << 8) | number[1];
     return first_read + second_read;
   } else if ((number[0] & 0x20) == 0) { // 21 bit number encoded in 3 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
     if(second_read == 0) return 0;
-    *value = ((number[0] & 0x1F) << 16) | (number[1] << 8) | number[2];
+    *value = (((uint64_t)number[0] & 0x1F) << 16) | ((uint64_t)number[1] << 8) | number[2];
     return first_read + second_read;
   } else if ((number[0] & 0x10) == 0) { // 28 bit number encoded in 4 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 3);
     if(second_read == 0) return 0;
-    *value = ((number[0] & 0x0F) << 24) | (number[1] << 16) | (number[2] << 8) | number[3];
+    *value = (((uint64_t)number[0] & 0x0F) << 24) | ((uint64_t)number[1] << 16) | ((uint64_t)number[2] << 8)
+        | number[3];
     return first_read + second_read;
   } else if ((number[0] & 0x08) == 0) { // 35 bit number encoded in 5 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 4);
     if(second_read == 0) return 0;
-    *value = ((uint64_t)(number[0] & 0x07) << 32) | (number[1] << 24) | (number[2] << 16) | (number[3] << 8)
-        | number[4];
+    *value = ((uint64_t)(number[0] & 0x07) << 32) | ((uint64_t)number[1] << 24) | ((uint64_t)number[2] << 16)
+        | ((uint64_t)number[3] << 8) | number[4];
     return first_read + second_read;
   } else if((number[0] & 0x04) == 0) { // 42 bit number encoded in 6 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 5);
     if(second_read == 0) return 0;
-    *value = ((uint64_t)(number[0] & 0x03) << 40) | ((uint64_t)number[1] << 32) | (number[2] << 24) | (number[3] << 16)
-        | (number[4] << 8) | number[5];
+    *value = ((uint64_t)(number[0] & 0x03) << 40) | ((uint64_t)number[1] << 32) | ((uint64_t)number[2] << 24)
+        | ((uint64_t)number[3] << 16) | ((uint64_t)number[4] << 8) | number[5];
     return first_read + second_read;
   } else if((number[0] & 0x02) == 0) { // 49 bit number encoded in 7 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 6);
     if(second_read == 0) return 0;
     *value = ((uint64_t)(number[0] & 0x01) << 48) | ((uint64_t)number[1] << 40) | ((uint64_t)number[2] << 32)
-        | (number[3] << 24) | (number[4] << 16) | (number[5] << 8) | number[6];
+        | ((uint64_t)number[3] << 24) | ((uint64_t)number[4] << 16) | ((uint64_t)number[5] << 8) | number[6];
     return first_read + second_read;
   } else if((number[0] & 0x01) == 0) { // 56 bit number encoded in 8 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 7);
     if(second_read == 0) return 0;
     *value = ((uint64_t)number[1] << 48) | ((uint64_t)number[2] << 40) | ((uint64_t)number[3] << 32)
-        | (number[4] << 24) | (number[5] << 16) | (number[6] << 8) | number[7];
+        | ((uint64_t)number[4] << 24) | ((uint64_t)number[5] << 16) | ((uint64_t)number[6] << 8) | number[7];
     return first_read + second_read;
   } else { // 64 bit number encoded in 9 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 8);
     if(second_read == 0) return 0;
     *value = ((uint64_t)number[1] << 56) | ((uint64_t)number[2] << 48) | ((uint64_t)number[3] << 40)
-        | ((uint64_t)number[4] << 32) | (number[5] << 24) | (number[6] << 16) | (number[7] << 8) | number[8];
+        | ((uint64_t)number[4] << 32) | ((uint64_t)number[5] << 24) | ((uint64_t)number[6] << 16)
+        | ((uint64_t)number[7] << 8) | number[8];
     return first_read + second_read;
   }
 }
@@ -360,51 +362,84 @@ size_t circular_buffer_peek_svarint(struct circular_buffer *buffer, size_t offse
   } else if((number[0] & 0x20) == 0) { // 13 bit signed number encoded in 2 bytes
     size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
     if(second_read == 0) return 0;
+    uint64_t encoded = (((uint64_t)number[0] & 0x1F) << 8) | number[1];
     *value = negative
-        ? -(~(((number[0] & 0x1F) << 8) | number[1]) & 0x3FFF)
-        : ((number[0] & 0x1F) << 8) | number[1];
+        ? -(0x1FFF - encoded)
+        : (int64_t)encoded;
     return first_read + second_read;
   } else if((number[0] & 0x10) == 0) { // 20 bit signed number encoded in 3 bytes
     size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
     if(rest < 2) return 0;
+    uint64_t encoded = (((uint64_t)number[0] & 0x0F) << 16)
+                     | ((uint64_t)number[1] << 8)
+                     | number[2];
     *value = negative
-        ? -(~(((number[0] & 0x0F) << 16) | (number[1] << 8) | number[2]) & 0x1FFFF)
-        : (((number[0] & 0x0F) << 16) | (number[1] << 8) | number[2]);
+        ? -((int64_t)((uint64_t)0xFFFFF - encoded))
+        : (int64_t)encoded;
     return first_read + rest;
   } else if((number[0] & 0x08) == 0) { // 27 bit signed number encoded in 4 bytes
     size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 3);
     if(rest < 3) return 0;
+    uint64_t encoded = (((uint64_t)number[0] & 0x07) << 24)
+                     | ((uint64_t)number[1] << 16)
+                     | ((uint64_t)number[2] << 8)
+                     | number[3];
     *value = negative
-        ? -(~(((number[0] & 0x07) << 24) | (number[1] << 16) | (number[2] << 8) | number[3]) & 0xFFFFFF)
-        : (((number[0] & 0x07) << 24) | (number[1] << 16) | (number[2] << 8) | number[3]);
+        ? -((int64_t)((uint64_t)0x7FFFFFF - encoded))
+        : (int64_t)encoded;
     return first_read + rest;
   } else if((number[0] & 0x04) == 0) { // 34 bit signed number encoded in 5 bytes
     size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 4);
     if(rest < 4) return 0;
+    uint64_t encoded = (((uint64_t)number[0] & 0x03) << 32)
+                     | ((uint64_t)number[1] << 24)
+                     | ((uint64_t)number[2] << 16)
+                     | ((uint64_t)number[3] << 8)
+                     | number[4];
     *value = negative
-        ? -(~(((uint64_t)(number[0] & 0x03) << 32) | (number[1] << 24) | (number[2] << 16) | (number[3] << 8) | number[4]) & 0x7FFFFFFF)
-        : (((uint64_t)(number[0] & 0x03) << 32) | (number[1] << 24) | (number[2] << 16) | (number[3] << 8) | number[4]);
+        ? -((int64_t)((uint64_t)0x3FFFFFFFF - encoded))
+        : (int64_t)encoded;
     return first_read + rest;
   } else if((number[0] & 0x02) == 0) { // 41 bit signed number encoded in 6 bytes
     size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 5);
     if(rest < 5) return 0;
+    uint64_t encoded = (((uint64_t)number[0] & 0x01) << 40)
+                     | ((uint64_t)number[1] << 32)
+                     | ((uint64_t)number[2] << 24)
+                     | ((uint64_t)number[3] << 16)
+                     | ((uint64_t)number[4] << 8)
+                     | number[5];
     *value = negative
-        ? -(~(((uint64_t)(number[0] & 0x01) << 40) | ((uint64_t)number[1] << 32) | (number[2] << 24) | (number[3] << 16) | (number[4] << 8) | number[5]) & 0x7FFFFFFFFF)
-        : (((uint64_t)(number[0] & 0x01) << 40) | ((uint64_t)number[1] << 32) | (number[2] << 24) | (number[3] << 16) | (number[4] << 8) | number[5]);
+        ? -((int64_t)((uint64_t)0x1FFFFFFFFFF - encoded))
+        : (int64_t)encoded;
     return first_read + rest;
   } else if((number[0] & 0x01) == 0) { // 48 bit signed number encoded in 7 bytes
     size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 6);
     if(rest < 6) return 0;
+    uint64_t encoded = ((uint64_t)number[1] << 40)
+                     | ((uint64_t)number[2] << 32)
+                     | ((uint64_t)number[3] << 24)
+                     | ((uint64_t)number[4] << 16)
+                     | ((uint64_t)number[5] << 8)
+                     | number[6];
     *value = negative
-        ? -(~(((uint64_t)(number[0] & 0x00) << 48) | ((uint64_t)number[1] << 40) | ((uint64_t)number[2] << 32) | (number[3] << 24) | (number[4] << 16) | (number[5] << 8) | number[6]) & 0x7FFFFFFFFFFFFF)
-        : (((uint64_t)(number[0] & 0x00) << 48) | ((uint64_t)number[1] << 40) | ((uint64_t)number[2] << 32) | (number[3] << 24) | (number[4] << 16) | (number[5] << 8) | number[6]);
+        ? -((int64_t)((uint64_t)0xFFFFFFFFFFFF - encoded))
+        : (int64_t)encoded;
     return first_read + rest;
   } else { // 64 bit signed number encoded in 9 bytes
     size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 8);
     if(rest < 8) return 0;
+    uint64_t encoded = ((uint64_t)number[1] << 56)
+                     | ((uint64_t)number[2] << 48)
+                     | ((uint64_t)number[3] << 40)
+                     | ((uint64_t)number[4] << 32)
+                     | ((uint64_t)number[5] << 24)
+                     | ((uint64_t)number[6] << 16)
+                     | ((uint64_t)number[7] << 8)
+                     | number[8];
     *value = negative
-        ? -(~(((uint64_t)number[1] << 56) | ((uint64_t)number[2] << 48) | ((uint64_t)number[3] << 40) | ((uint64_t)number[4] << 32) | (number[5] << 24) | (number[6] << 16) | (number[7] << 8) | number[8]) & 0x7FFFFFFFFFFFFFFF)
-        : (((uint64_t)number[1] << 56) | ((uint64_t)number[2] << 48) | ((uint64_t)number[3] << 40) | ((uint64_t)number[4] << 32) | (number[5] << 24) | (number[6] << 16) | (number[7] << 8) | number[8]);
+        ? -((int64_t)((uint64_t)0xFFFFFFFFFFFFFFFF - encoded))
+        : (int64_t)encoded;
     return first_read + rest;
   }
 }

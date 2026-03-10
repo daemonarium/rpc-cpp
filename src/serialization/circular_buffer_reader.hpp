@@ -57,9 +57,9 @@ namespace serialization {
         std::uint64_t v;
         read_bytes(&v, sizeof(v));
         if(v & 0x8000000000000000) {
-          v ^= 0x8000000000000000;
-        } else {
           v = ~v;
+        } else {
+          v ^= 0x8000000000000000;
         }
         value = *(double*)(&v);
       }

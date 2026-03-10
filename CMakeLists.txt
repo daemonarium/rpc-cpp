@@ -25,12 +25,14 @@ file(GLOB EXAMPLE_FILES "src/examples/*.cpp")
 foreach(EXAMPLE_FILE ${EXAMPLE_FILES})
   get_filename_component(EXAMPLE_NAME ${EXAMPLE_FILE} NAME_WE)
   add_executable(${EXAMPLE_NAME} ${EXAMPLE_FILE} ${SERIALIZATION_FILES} ${IO_FILES})
-  target_compile_options(${EXAMPLE_NAME} PRIVATE
-    -fwasm-exceptions
-  )
-  target_link_options(${EXAMPLE_NAME} PRIVATE
-    -fwasm-exceptions
-  )
+  if(WASM)
+    target_compile_options(${EXAMPLE_NAME} PRIVATE
+      -fwasm-exceptions
+    )
+    target_link_options(${EXAMPLE_NAME} PRIVATE
+      -fwasm-exceptions
+    )
+  endif()
   target_include_directories(${EXAMPLE_NAME} PRIVATE include src)
   set_target_properties(${EXAMPLE_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/examples

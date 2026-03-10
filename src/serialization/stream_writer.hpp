@@ -48,7 +48,7 @@ namespace serialization {
         if(v & 0x8000000000000000) {
           v ^= 0x8000000000000000;
         } else {
-          v = ~v;
+          v = ~ v;
         }
         stream_.write((char*)&v, sizeof(v));
        }

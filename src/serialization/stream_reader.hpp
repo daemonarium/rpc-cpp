@@ -10,7 +10,7 @@
 #include <memory>
 
 #ifndef __EMSCRIPTEN__
-#define SERIALIZATION_STREAM_READER_DEBUG
+//#define SERIALIZATION_STREAM_READER_DEBUG
 #endif
 
 namespace serialization {
@@ -48,9 +48,9 @@ namespace serialization {
         std::uint64_t v;
         stream_.read((char*)&v, sizeof(v));
         if(v & 0x8000000000000000) {
-          v ^= 0x8000000000000000;
+          v = ~ v;
         } else {
-          v = ~v;
+          v ^= 0x8000000000000000;
         }
         value = *(double*)(&v);
         debug("  read_f64 result %f", value);
@@ -244,33 +244,35 @@ namespace serialization {
           return number[0];
         } else if ((number[0] & 0x40) == 0) { // 14 bit number encoded in 2 bytes
           number[1] = stream_.get();
-          return ((number[0] & 0x3F) << 8) | number[1];
+          return (((uint64_t)number[0] & 0x3F) << 8) | number[1];
         } else if ((number[0] & 0x20) == 0) { // 21 bit number encoded in 3 bytes
           stream_.read((char*)number + 1, 2);
-          return ((number[0] & 0x1F) << 16) | (number[1] << 8) | number[2];
+          return (((uint64_t)number[0] & 0x1F) << 16) | ((uint64_t)number[1] << 8) | number[2];
         } else if ((number[0] & 0x10) == 0) { // 28 bit number encoded in 4 bytes
           stream_.read((char*)number + 1, 3);
-          return ((number[0] & 0x0F) << 24) | (number[1] << 16) | (number[2] << 8) | number[3];
+          return (((uint64_t)number[0] & 0x0F) << 24) | ((uint64_t)number[1] << 16) | ((uint64_t)number[2] << 8) 
+               | number[3];
         } else if ((number[0] & 0x08) == 0) { // 35 bit number encoded in 5 bytes
-          stream_.read((char*)number + 1, 4);
-          return ((uint64_t)(number[0] & 0x07) << 32) | (number[1] << 24) | (number[2] << 16) | (number[3] << 8)
-              | number[4];
+          stream_.read((char*)number + 1, 4);          
+          return ((uint64_t)(number[0] & 0x07) << 32) | ((uint64_t)number[1] << 24) | ((uint64_t)number[2] << 16) 
+               | ((uint64_t)number[3] << 8) | number[4];
         } else if((number[0] & 0x04) == 0) { // 42 bit number encoded in 6 bytes
           stream_.read((char*)number + 1, 5);
-          return ((uint64_t)(number[0] & 0x03) << 40) | ((uint64_t)number[1] << 32) | (number[2] << 24) | (number[3] << 16)
-              | (number[4] << 8) | number[5];
+          return ((uint64_t)(number[0] & 0x03) << 40) | ((uint64_t)number[1] << 32) | (number[2] << 24)
+               | ((uint64_t)number[3] << 16) | ((uint64_t)number[4] << 8) | number[5];
         } else if((number[0] & 0x02) == 0) { // 49 bit number encoded in 7 bytes
           stream_.read((char*)number + 1, 6);
           return ((uint64_t)(number[0] & 0x01) << 48) | ((uint64_t)number[1] << 40) | ((uint64_t)number[2] << 32)
-              | (number[3] << 24) | (number[4] << 16) | (number[5] << 8) | number[6];
+               | ((uint64_t)number[3] << 24) | ((uint64_t)number[4] << 16) | ((uint64_t)number[5] << 8) | number[6];
         } else if((number[0] & 0x01) == 0) { // 56 bit number encoded in 8 bytes
           stream_.read((char*)number + 1, 7);
           return ((uint64_t)number[1] << 48) | ((uint64_t)number[2] << 40) | ((uint64_t)number[3] << 32)
-              | (number[4] << 24) | (number[5] << 16) | (number[6] << 8) | number[7];
+               | ((uint64_t)number[4] << 24) | ((uint64_t)number[5] << 16) | ((uint64_t)number[6] << 8) | number[7];
         } else { // 64 bit number encoded in 9 bytes
           stream_.read((char*)number + 1, 8);
           return ((uint64_t)number[1] << 56) | ((uint64_t)number[2] << 48) | ((uint64_t)number[3] << 40)
-              | ((uint64_t)number[4] << 32) | (number[5] << 24) | (number[6] << 16) | (number[7] << 8) | number[8];
+               | ((uint64_t)number[4] << 32) | ((uint64_t)number[5] << 24) | ((uint64_t)number[6] << 16) 
+               | ((uint64_t)number[7] << 8) | number[8];
         }
       }
 
@@ -284,39 +286,72 @@ namespace serialization {
             : (number[0] & 0x3F);
         } else if((number[0] & 0x20) == 0) { // 13 bit signed number encoded in 2 bytes
           number[1] = stream_.get();
+          uint64_t encoded = (((uint64_t)number[0] & 0x1F) << 8) | number[1];
           return negative
-            ? -(~(((number[0] & 0x1F) << 8) | number[1]) & 0x3FFF)
-            : ((number[0] & 0x1F) << 8) | number[1];
+            ? -(0x1FFF - encoded)
+            : encoded;
         } else if((number[0] & 0x10) == 0) { // 20 bit signed number encoded in 3 bytes
           stream_.read((char*)number + 1, 2);
+          uint64_t encoded = (((uint64_t)number[0] & 0x0F) << 16)
+                           | ((uint64_t)number[1] << 8)
+                           | number[2];
           return negative
-            ? -(~(((number[0] & 0x0F) << 16) | (number[1] << 8) | number[2]) & 0x1FFFF)
-            : (((number[0] & 0x0F) << 16) | (number[1] << 8) | number[2]);
+            ? -static_cast<std::int64_t>((uint64_t)0xFFFFF - encoded)
+            : static_cast<std::int64_t>(encoded);
         } else if((number[0] & 0x08) == 0) { // 27 bit signed number encoded in 4 bytes
           stream_.read((char*)number + 1, 3);
+          uint64_t encoded = (((uint64_t)number[0] & 0x07) << 24)
+                           | ((uint64_t)number[1] << 16)
+                           | ((uint64_t)number[2] << 8)
+                           | number[3];
           return negative
-            ? -(~(((number[0] & 0x07) << 24) | (number[1] << 16) | (number[2] << 8) | number[3]) & 0xFFFFFF)
-            : (((number[0] & 0x07) << 24) | (number[1] << 16) | (number[2] << 8) | number[3]);
+            ? -static_cast<std::int64_t>((uint64_t)0x7FFFFFF - encoded)
+            : static_cast<std::int64_t>(encoded);
         } else if((number[0] & 0x04) == 0) { // 34 bit signed number encoded in 5 bytes
           stream_.read((char*)number + 1, 4);
+          uint64_t encoded = (((uint64_t)number[0] & 0x03) << 32)
+                           | ((uint64_t)number[1] << 24)
+                           | ((uint64_t)number[2] << 16)
+                           | ((uint64_t)number[3] << 8)
+                           | number[4];
           return negative
-            ? -(~(((std::uint64_t)(number[0] & 0x03) << 32) | (number[1] << 24) | (number[2] << 16) | (number[3] << 8) | number[4]) & 0x7FFFFFFF)
-            : (((std::uint64_t)(number[0] & 0x03) << 32) | (number[1] << 24) | (number[2] << 16) | (number[3] << 8) | number[4]);
+            ? -static_cast<std::int64_t>((uint64_t)0x3FFFFFFFF - encoded)
+            : static_cast<std::int64_t>(encoded);
         } else if((number[0] & 0x02) == 0) { // 41 bit signed number encoded in 6 bytes
           stream_.read((char*)number + 1, 5);
+          uint64_t encoded = (((uint64_t)number[0] & 0x01) << 40)
+                           | ((uint64_t)number[1] << 32)
+                           | ((uint64_t)number[2] << 24)
+                           | ((uint64_t)number[3] << 16)
+                           | ((uint64_t)number[4] << 8)
+                           | number[5];
           return negative
-            ? -(~(((std::uint64_t)(number[0] & 0x01) << 40) | ((std::uint64_t)number[1] << 32) | (number[2] << 24) | (number[3] << 16) | (number[4] << 8) | number[5]) & 0x7FFFFFFFFF)
-            : (((std::uint64_t)(number[0] & 0x01) << 40) | ((std::uint64_t)number[1] << 32) | (number[2] << 24) | (number[3] << 16) | (number[4] << 8) | number[5]);
+            ? -static_cast<std::int64_t>((uint64_t)0x1FFFFFFFFFF - encoded)
+            : static_cast<std::int64_t>(encoded);
         } else if((number[0] & 0x01) == 0) { // 48 bit signed number encoded in 7 bytes
           stream_.read((char*)number + 1, 6);
+          uint64_t encoded = ((uint64_t)number[1] << 40)
+                           | ((uint64_t)number[2] << 32)
+                           | ((uint64_t)number[3] << 24)
+                           | ((uint64_t)number[4] << 16)
+                           | ((uint64_t)number[5] << 8)
+                           | number[6];
           return negative
-            ? -(~(((std::uint64_t)(number[0] & 0x00) << 48) | ((std::uint64_t)number[1] << 40) | ((std::uint64_t)number[2] << 32) | (number[3] << 24) | (number[4] << 16) | (number[5] << 8) | number[6]) & 0x7FFFFFFFFFFFFF)
-            : (((std::uint64_t)(number[0] & 0x00) << 48) | ((std::uint64_t)number[1] << 40) | ((std::uint64_t)number[2] << 32) | (number[3] << 24) | (number[4] << 16) | (number[5] << 8) | number[6]);
+            ? -static_cast<std::int64_t>((uint64_t)0xFFFFFFFFFFFF - encoded)
+            : static_cast<std::int64_t>(encoded);
         } else { // 64 bit signed number encoded in 9 bytes
           stream_.read((char*)number + 1, 8);
+          uint64_t encoded = ((uint64_t)number[1] << 56)
+                           | ((uint64_t)number[2] << 48)
+                           | ((uint64_t)number[3] << 40)
+                           | ((uint64_t)number[4] << 32)
+                           | ((uint64_t)number[5] << 24)
+                           | ((uint64_t)number[6] << 16)
+                           | ((uint64_t)number[7] << 8)
+                           | number[8];
           return negative
-            ? -(~(((std::uint64_t)number[1] << 56) | ((std::uint64_t)number[2] << 48) | ((std::uint64_t)number[3] << 40) | ((std::uint64_t)number[4] << 32) | (number[5] << 24) | (number[6] << 16) | (number[7] << 8) | number[8]) & 0x7FFFFFFFFFFFFFFF)
-            : (((std::uint64_t)number[1] << 56) | ((std::uint64_t)number[2] << 48) | ((std::uint64_t)number[3] << 40) | ((std::uint64_t)number[4] << 32) | (number[5] << 24) | (number[6] << 16) | (number[7] << 8) | number[8]);
+            ? -static_cast<std::int64_t>((uint64_t)0xFFFFFFFFFFFFFFFF - encoded)
+            : static_cast<std::int64_t>(encoded);
         }
       }
     };
