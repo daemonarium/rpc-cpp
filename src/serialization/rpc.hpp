@@ -1,6 +1,9 @@
 #pragma once
 
-#include "type_registry.hpp"
+#include <vector>
+#include <cstdint>
+#include <string>
+#include "annotations.hpp"
 
 namespace serialization {
 

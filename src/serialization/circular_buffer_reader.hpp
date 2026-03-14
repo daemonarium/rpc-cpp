@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <istream>
 #include <typeindex>
 #include <vector>
 #include <unordered_map>
