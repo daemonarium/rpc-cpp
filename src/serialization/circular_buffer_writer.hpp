@@ -45,10 +45,16 @@ namespace serialization {
       void write_f64(double value) {
         std::uint64_t v = *(std::uint64_t*)(&value);
         if(v & 0x8000000000000000) {
-          v ^= 0x8000000000000000;
-        } else {
           v = ~v;
+        } else {
+          v ^= 0x8000000000000000;          
         }
+        if(value == 0) v = 0x8000000000000000;
+        // INSERT_YOUR_CODE
+  #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+          // We're on a little-endian system, so reverse the byte order before writing
+          v = __builtin_bswap64(v);
+  #endif
         write_bytes(&v, sizeof(v));
       }
 

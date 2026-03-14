@@ -42,16 +42,20 @@ namespace serialization {
         debug("write_i64 %d", value);
         write_svar_int(value);
       }
-      void write_f64(double value) { 
+      void write_f64(double value) {
         debug("write_f64 %f", value);
         std::uint64_t v = *(std::uint64_t*)(&value);
         if(v & 0x8000000000000000) {
-          v ^= 0x8000000000000000;
+          v = ~v;
         } else {
-          v = ~ v;
+          v ^= 0x8000000000000000;
         }
+        if(value == 0) v = 0x8000000000000000;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        v = __builtin_bswap64(v);
+#endif
         stream_.write((char*)&v, sizeof(v));
-       }
+      }
       void write_bool(bool value) {
         debug("write_bool %d", value);
         uint8_t number = value ? 1 : 0;
@@ -250,137 +254,132 @@ namespace serialization {
       void write_svar_int(std::int64_t value) {
         debug("  write_svar_int %d", value);
         bool negative = value < 0;
-        std::uint64_t unsignedValue = negative ? -value : value;
-        if(unsignedValue < 0x40) { // 6 bit signed number encoded in 1 byte
-          uint8_t number = negative ? (uint8_t)((~unsignedValue) & 0x3F) : (uint8_t)(0x80 | unsignedValue);
-          stream_.write((char*)&number, 1);          
-        } else if(unsignedValue < 0x2000) { // 13 bit signed number encoded in 2 bytes
-          if(negative) {
+        std::uint64_t unsigned_value = negative ? (std::uint64_t)(-value) : (std::uint64_t)value;
+
+        if(negative) {
+          // Negative: length = leading zeros then a one. Prefix: 01 (1B), 001 (2B), ...
+          if(unsigned_value < 0x40) { // 1 byte, 6 bit. Prefix 01.
+            uint8_t number = (uint8_t)(0x40 | ((~unsigned_value) & 0x3F));
+            stream_.write((char*)&number, 1);
+          } else if(unsigned_value < 0x2000) { // 2 bytes, 13 bit. Prefix 001.
             uint8_t number[2] = {
-              (uint8_t)(0x40 | (((~unsignedValue) >> 8)&0x1F)),
-              (uint8_t)(((~unsignedValue) & 0xFF))};
+                (uint8_t)(0x20 | (((~unsigned_value) >> 8) & 0x1F)),
+                (uint8_t)((~unsigned_value) & 0xFF)};
             stream_.write((char*)number, 2);
-          } else {
+          } else if(unsigned_value < 0x100000) { // 3 bytes, 20 bit. Prefix 0001.
+            uint8_t number[3] = {
+                (uint8_t)(0x10 | (((~unsigned_value) >> 16) & 0x0F)),
+                (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+                (uint8_t)((~unsigned_value) & 0xFF)};
+            stream_.write((char*)number, 3);
+          } else if(unsigned_value < 0x8000000) { // 4 bytes, 27 bit. Prefix 00001.
+            uint8_t number[4] = {
+                (uint8_t)(0x08 | (((~unsigned_value) >> 24) & 0x07)),
+                (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+                (uint8_t)((~unsigned_value) & 0xFF)};
+            stream_.write((char*)number, 4);
+          } else if(unsigned_value < 0x400000000) { // 5 bytes, 34 bit. Prefix 000001.
+            uint8_t number[5] = {
+                (uint8_t)(0x04 | (((~unsigned_value) >> 32) & 0x03)),
+                (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+                (uint8_t)((~unsigned_value) & 0xFF)};
+            stream_.write((char*)number, 5);
+          } else if(unsigned_value < 0x20000000000) { // 6 bytes, 41 bit. Prefix 0000001.
+            uint8_t number[6] = {
+                (uint8_t)(0x02 | (((~unsigned_value) >> 40) & 0x01)),
+                (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+                (uint8_t)((~unsigned_value) & 0xFF)};
+            stream_.write((char*)number, 6);
+          } else if(unsigned_value < 0x1000000000000) { // 7 bytes, 48 bit. Prefix 00000001.
+            uint8_t number[7] = {
+                (uint8_t)(0x01),
+                (uint8_t)(((~unsigned_value) >> 40) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+                (uint8_t)((~unsigned_value) & 0xFF)};
+            stream_.write((char*)number, 7);
+          } else { // 9 bytes, 64 bit. Prefix 00000000.
+            uint8_t number[9] = {
+                (uint8_t)(0x00),
+                (uint8_t)(((~unsigned_value) >> 56) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 48) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 40) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+                (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+                (uint8_t)((~unsigned_value) & 0xFF)};
+            stream_.write((char*)number, 9);
+          }
+        } else {
+          // Positive: length = leading ones then a zero. Prefix: 10 (1B), 110 (2B), ...
+          if(unsigned_value < 0x40) { // 1 byte, 6 bit. Prefix 10.
+            uint8_t number = (uint8_t)(0x80 | unsigned_value);
+            stream_.write((char*)&number, 1);
+          } else if(unsigned_value < 0x2000) { // 2 bytes, 13 bit. Prefix 110.
             uint8_t number[2] = {
-              (uint8_t)(0x80 | 0x40 | (unsignedValue >> 8)), 
-              (uint8_t)(unsignedValue & 0xFF)};
+                (uint8_t)(0x80 | 0x40 | (unsigned_value >> 8)),
+                (uint8_t)(unsigned_value & 0xFF)};
             stream_.write((char*)number, 2);
-          }
-        } else if(unsignedValue < 0x100000) { // 20 bit signed number encoded in 3 bytes
-          if(negative) {
+          } else if(unsigned_value < 0x100000) { // 3 bytes, 20 bit. Prefix 1110.
             uint8_t number[3] = {
-              (uint8_t)(0x60 | (((~unsignedValue) >> 16)&0x0F)),
-              (uint8_t)(((~unsignedValue) >> 8) & 0xFF),
-              (uint8_t)(((~unsignedValue) & 0xFF))};
+                (uint8_t)(0x80 | 0x60 | (unsigned_value >> 16)),
+                (uint8_t)((unsigned_value >> 8) & 0xFF),
+                (uint8_t)(unsigned_value & 0xFF)};
             stream_.write((char*)number, 3);
-          } else {
-            uint8_t number[3] = {
-              (uint8_t)(0x80 | 0x60 | (unsignedValue >> 16)), 
-              (uint8_t)((unsignedValue >> 8) & 0xFF),
-              (uint8_t)(unsignedValue & 0xFF)};
-            stream_.write((char*)number, 3);
-          }
-        } else if(unsignedValue < 0x8000000) { // 27 bit signed number encoded in 4 bytes
-          if(negative) {
+          } else if(unsigned_value < 0x8000000) { // 4 bytes, 27 bit. Prefix 11110.
             uint8_t number[4] = {
-              (uint8_t)(0x70 | (((~unsignedValue) >> 24)&0x07)),
-              (uint8_t)(((~unsignedValue) >> 16) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 8) & 0xFF),
-              (uint8_t)(((~unsignedValue) & 0xFF))};
+                (uint8_t)(0x80 | 0x70 | (unsigned_value >> 24)),
+                (uint8_t)((unsigned_value >> 16) & 0xFF),
+                (uint8_t)((unsigned_value >> 8) & 0xFF),
+                (uint8_t)(unsigned_value & 0xFF)};
             stream_.write((char*)number, 4);
-          } else {
-            uint8_t number[4] = {
-              (uint8_t)(0x80 | 0x70 | (unsignedValue >> 24)), 
-              (uint8_t)((unsignedValue >> 16) & 0xFF),
-              (uint8_t)((unsignedValue >> 8) & 0xFF),
-              (uint8_t)(unsignedValue & 0xFF)};   
-            stream_.write((char*)number, 4);
-          }
-        } else if(unsignedValue < 0x400000000) { // 34 bit signed number encoded in 5 bytes
-          if(negative) {
+          } else if(unsigned_value < 0x400000000) { // 5 bytes, 34 bit. Prefix 111110.
             uint8_t number[5] = {
-              (uint8_t)(0x78 | (((~unsignedValue) >> 32)&0x03)),
-              (uint8_t)(((~unsignedValue) >> 24) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 16) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 8) & 0xFF),
-              (uint8_t)(((~unsignedValue) & 0xFF))};
+                (uint8_t)(0x80 | 0x78 | (unsigned_value >> 32)),
+                (uint8_t)((unsigned_value >> 24) & 0xFF),
+                (uint8_t)((unsigned_value >> 16) & 0xFF),
+                (uint8_t)((unsigned_value >> 8) & 0xFF),
+                (uint8_t)(unsigned_value & 0xFF)};
             stream_.write((char*)number, 5);
-          } else {
-            uint8_t number[5] = {
-              (uint8_t)(0x80 | 0x78 | (unsignedValue >> 32)), 
-              (uint8_t)((unsignedValue >> 24) & 0xFF),
-              (uint8_t)((unsignedValue >> 16) & 0xFF),
-              (uint8_t)((unsignedValue >> 8) & 0xFF),
-              (uint8_t)(unsignedValue & 0xFF)};
-            stream_.write((char*)number, 5);
-          }
-        } else if(unsignedValue < 0x20000000000) { // 41 bit signed number encoded in 6 bytes
-          if(negative) {
+          } else if(unsigned_value < 0x20000000000) { // 6 bytes, 41 bit. Prefix 1111110.
             uint8_t number[6] = {
-              (uint8_t)(0x7C | (((~unsignedValue) >> 40)&0x01)),
-              (uint8_t)(((~unsignedValue) >> 32) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 24) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 16) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 8) & 0xFF),
-              (uint8_t)(((~unsignedValue) & 0xFF))};
+                (uint8_t)(0x80 | 0x7C | (unsigned_value >> 40)),
+                (uint8_t)((unsigned_value >> 32) & 0xFF),
+                (uint8_t)((unsigned_value >> 24) & 0xFF),
+                (uint8_t)((unsigned_value >> 16) & 0xFF),
+                (uint8_t)((unsigned_value >> 8) & 0xFF),
+                (uint8_t)(unsigned_value & 0xFF)};
             stream_.write((char*)number, 6);
-          } else {
-            uint8_t number[6] = {
-              (uint8_t)(0x80 | 0x7C | (unsignedValue >> 40)),     
-              (uint8_t)((unsignedValue >> 32) & 0xFF),
-              (uint8_t)((unsignedValue >> 24) & 0xFF),
-              (uint8_t)((unsignedValue >> 16) & 0xFF),
-              (uint8_t)((unsignedValue >> 8) & 0xFF),
-              (uint8_t)(unsignedValue & 0xFF)};
-            stream_.write((char*)number, 6);
-          }
-        } else if(unsignedValue < 0x1000000000000) { // 48 bit signed number encoded in 7 bytes
-          if(negative) {
+          } else if(unsigned_value < 0x1000000000000) { // 7 bytes, 48 bit. Prefix 11111110.
             uint8_t number[7] = {
-              (uint8_t)(0x7E),
-              (uint8_t)(((~unsignedValue) >> 40) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 32) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 24) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 16) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 8) & 0xFF),
-              (uint8_t)(((~unsignedValue) & 0xFF))};
+                (uint8_t)(0x80 | 0x7E),
+                (uint8_t)((unsigned_value >> 40) & 0xFF),
+                (uint8_t)((unsigned_value >> 32) & 0xFF),
+                (uint8_t)((unsigned_value >> 24) & 0xFF),
+                (uint8_t)((unsigned_value >> 16) & 0xFF),
+                (uint8_t)((unsigned_value >> 8) & 0xFF),
+                (uint8_t)(unsigned_value & 0xFF)};
             stream_.write((char*)number, 7);
-          } else {
-            uint8_t number[7] = {
-              (uint8_t)(0x80 | 0x7E), 
-              (uint8_t)((unsignedValue >> 40) & 0xFF),
-              (uint8_t)((unsignedValue >> 32) & 0xFF),
-              (uint8_t)((unsignedValue >> 24) & 0xFF),
-              (uint8_t)((unsignedValue >> 16) & 0xFF),
-              (uint8_t)((unsignedValue >> 8) & 0xFF),
-              (uint8_t)(unsignedValue & 0xFF)};
-            stream_.write((char*)number, 7);
-          }
-        } else { // 64 bit signed number encoded in 9 bytes
-          if(negative) {
+          } else { // 9 bytes, 64 bit. Prefix 11111111.
             uint8_t number[9] = {
-              (uint8_t)(0x7F),
-              (uint8_t)(((~unsignedValue) >> 56) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 48) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 40) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 32) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 24) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 16) & 0xFF),
-              (uint8_t)(((~unsignedValue) >> 8) & 0xFF),
-              (uint8_t)(((~unsignedValue) & 0xFF))
-            };
-            stream_.write((char*)number, 9); 
-          } else {
-            uint8_t number[9] = {
-              (uint8_t)(0x80 | 0x7F),
-              (uint8_t)((unsignedValue >> 56) & 0xFF),
-              (uint8_t)((unsignedValue >> 40) & 0xFF),
-              (uint8_t)((unsignedValue >> 32) & 0xFF),
-              (uint8_t)((unsignedValue >> 24) & 0xFF),
-              (uint8_t)((unsignedValue >> 16) & 0xFF),
-              (uint8_t)((unsignedValue >> 8) & 0xFF),
-              (uint8_t)(unsignedValue & 0xFF)
-            };
+                (uint8_t)(0x80 | 0x7F),
+                (uint8_t)((unsigned_value >> 56) & 0xFF),
+                (uint8_t)((unsigned_value >> 48) & 0xFF),
+                (uint8_t)((unsigned_value >> 40) & 0xFF),
+                (uint8_t)((unsigned_value >> 32) & 0xFF),
+                (uint8_t)((unsigned_value >> 24) & 0xFF),
+                (uint8_t)((unsigned_value >> 16) & 0xFF),
+                (uint8_t)((unsigned_value >> 8) & 0xFF),
+                (uint8_t)(unsigned_value & 0xFF)};
             stream_.write((char*)number, 9);
           }
         }

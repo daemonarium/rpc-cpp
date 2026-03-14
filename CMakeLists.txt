@@ -109,6 +109,13 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  # Generator for TSV reference data (value + binary) for TS tests
+  add_executable(generate_serialization_tsv src/test/generate_serialization_tsv.cpp ${IO_FILES})
+  target_include_directories(generate_serialization_tsv PRIVATE src)
+  set_target_properties(generate_serialization_tsv PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   # --- Serialization tests (circular_buffer) ---
 
   add_executable(serialization_cb_ut src/test/serialization_cb_ut.cpp ${IO_FILES})

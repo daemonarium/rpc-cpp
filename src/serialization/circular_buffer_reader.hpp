@@ -56,10 +56,14 @@ namespace serialization {
       void read_f64(double& value) {
         std::uint64_t v;
         read_bytes(&v, sizeof(v));
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        // We're on a little-endian system, so reverse the byte order before reading
+        v = __builtin_bswap64(v);
+#endif
         if(v & 0x8000000000000000) {
-          v = ~v;
-        } else {
           v ^= 0x8000000000000000;
+        } else {
+          v = ~v;          
         }
         value = *(double*)(&v);
       }

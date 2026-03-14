@@ -28,6 +28,50 @@ namespace {
     r.read_rest();
     return result;
   }
+
+  // Returns serialized bytes for uvarint (same encoding as stream_writer).
+  std::vector<std::uint8_t> uvarint_to_bytes(std::uint64_t value) {
+    std::ostringstream os;
+    stream_writer w(os);
+    w.write_u64(value);
+    std::string s = os.str();
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+  }
+
+  // Returns serialized bytes for svarint (same encoding as stream_writer).
+  std::vector<std::uint8_t> svarint_to_bytes(std::int64_t value) {
+    std::ostringstream os;
+    stream_writer w(os);
+    w.write_i64(value);
+    std::string s = os.str();
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+  }
+
+  // Returns serialized bytes for float64 (same encoding as stream_writer).
+  std::vector<std::uint8_t> float64_to_bytes(double value) {
+    std::ostringstream os;
+    stream_writer w(os);
+    w.write_f64(value);
+    std::string s = os.str();
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+  }
+
+  template <typename T>
+  int three_way_cmp(const T& a, const T& b) {
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+  }
+
+  int bytes_three_way_cmp(const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
+    size_t n = (a.size() < b.size()) ? a.size() : b.size();
+    for (size_t i = 0; i < n; ++i) {
+      if (a[i] != b[i]) return (a[i] < b[i]) ? -1 : 1;
+    }
+    if (a.size() < b.size()) return -1;
+    if (a.size() > b.size()) return 1;
+    return 0;
+  }
 }
 
 int main() {
@@ -179,5 +223,64 @@ int main() {
     expect(s == std::string("hello"));
     expect(b == true);
     expect(i == -7_i);
+  };
+
+  // Sort order is preserved: binary comparison of serialized form matches numeric comparison.
+  // Same encoding as circular buffer; critical for DB keys.
+  "stream serialization preserves sort order uvarint svarint float64"_test = [] {
+    // --- uvarint ---
+    std::vector<std::uint64_t> uvals = {
+      0, 1, 2, 3, 126, 127, 128, 129, 255, 256,
+      0x3FFE, 0x3FFF, 0x4000, 0x4001,
+      0x1FFFFE, 0x1FFFFF, 0x200000, 0x200001,
+      0x10000000 - 1, 0x10000000, 0x10000001,
+      100, 1000, 1000000, 1000000000ULL,
+      0xFFFFFFFFULL, 0x100000000ULL, 0x100000001ULL,
+      0xFFFFFFFFFFFFFFFFULL
+    };
+    for (size_t i = 0; i < uvals.size(); ++i) {
+      for (size_t j = 0; j < uvals.size(); ++j) {
+        auto a = uvals[i], b = uvals[j];
+        auto ba = uvarint_to_bytes(a), bb = uvarint_to_bytes(b);
+        expect(three_way_cmp(a, b) == bytes_three_way_cmp(ba, bb));
+      }
+    }
+
+    // --- svarint ---
+    std::vector<std::int64_t> svals = {
+      0, 1, -1, 2, -2, 62, 63, -63, -64, 64, 65,
+      127, -127, 128, -128, 129, -129,
+      0x1FFF, 0x2000, -0x2000, -0x2001,
+      0x7FFFFFFF, -0x80000000LL,
+      1000000, -1000000,
+      0x7FFFFFFFFFFFFFFFLL, std::numeric_limits<std::int64_t>::min()
+    };
+    for (size_t i = 0; i < svals.size(); ++i) {
+      for (size_t j = 0; j < svals.size(); ++j) {
+        auto a = svals[i], b = svals[j];
+        auto ba = svarint_to_bytes(a), bb = svarint_to_bytes(b);
+        expect(three_way_cmp(a, b) == bytes_three_way_cmp(ba, bb));
+      }
+    }
+
+    // --- float64 (exclude NaN for pairwise comparison) ---
+    std::vector<double> fvals = {
+      -std::numeric_limits<double>::infinity(),
+      -1e308, -1e100, -1e10, -1000.0, -1.5, -1.0, -0.5, -1e-10, -1e-308,
+      -0.0, 0.0,
+      1e-308, 1e-10, 0.5, 1.0, 1.5, 1000.0, 1e10, 1e100, 1e308,
+      std::numeric_limits<double>::infinity()
+    };
+    for (size_t i = 0; i < fvals.size(); ++i) {
+      for (size_t j = 0; j < fvals.size(); ++j) {
+        auto a = fvals[i], b = fvals[j];
+        auto ba = float64_to_bytes(a), bb = float64_to_bytes(b);
+        expect(three_way_cmp(a, b) == bytes_three_way_cmp(ba, bb));
+      }
+    }
+
+    // NaN: two NaNs must serialize to the same bytes.
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    expect(float64_to_bytes(nan) == float64_to_bytes(nan));
   };
 }

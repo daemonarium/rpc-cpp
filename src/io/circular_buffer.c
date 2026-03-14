@@ -354,79 +354,75 @@ size_t circular_buffer_peek_svarint(struct circular_buffer *buffer, size_t offse
   size_t first_read = circular_buffer_peek(buffer, offset, number, 1);
   if(first_read == 0) return 0;
   bool negative = (number[0] & 0x80) == 0;
-  if((number[0] & 0x40) == 0) { // 6 bit signed number encoded in 1 byte
-    *value = negative
-        ? -((~number[0]) & 0x3F)
-        : (number[0] & 0x3F);
-    return first_read;
-  } else if((number[0] & 0x20) == 0) { // 13 bit signed number encoded in 2 bytes
-    size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
-    if(second_read == 0) return 0;
-    uint64_t encoded = (((uint64_t)number[0] & 0x1F) << 8) | number[1];
-    *value = negative
-        ? -(0x1FFF - encoded)
-        : (int64_t)encoded;
-    return first_read + second_read;
-  } else if((number[0] & 0x10) == 0) { // 20 bit signed number encoded in 3 bytes
-    size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
-    if(rest < 2) return 0;
-    uint64_t encoded = (((uint64_t)number[0] & 0x0F) << 16)
-                     | ((uint64_t)number[1] << 8)
-                     | number[2];
-    *value = negative
-        ? -((int64_t)((uint64_t)0xFFFFF - encoded))
-        : (int64_t)encoded;
-    return first_read + rest;
-  } else if((number[0] & 0x08) == 0) { // 27 bit signed number encoded in 4 bytes
-    size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 3);
-    if(rest < 3) return 0;
-    uint64_t encoded = (((uint64_t)number[0] & 0x07) << 24)
-                     | ((uint64_t)number[1] << 16)
-                     | ((uint64_t)number[2] << 8)
-                     | number[3];
-    *value = negative
-        ? -((int64_t)((uint64_t)0x7FFFFFF - encoded))
-        : (int64_t)encoded;
-    return first_read + rest;
-  } else if((number[0] & 0x04) == 0) { // 34 bit signed number encoded in 5 bytes
-    size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 4);
-    if(rest < 4) return 0;
-    uint64_t encoded = (((uint64_t)number[0] & 0x03) << 32)
-                     | ((uint64_t)number[1] << 24)
-                     | ((uint64_t)number[2] << 16)
-                     | ((uint64_t)number[3] << 8)
-                     | number[4];
-    *value = negative
-        ? -((int64_t)((uint64_t)0x3FFFFFFFF - encoded))
-        : (int64_t)encoded;
-    return first_read + rest;
-  } else if((number[0] & 0x02) == 0) { // 41 bit signed number encoded in 6 bytes
-    size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 5);
-    if(rest < 5) return 0;
-    uint64_t encoded = (((uint64_t)number[0] & 0x01) << 40)
-                     | ((uint64_t)number[1] << 32)
-                     | ((uint64_t)number[2] << 24)
-                     | ((uint64_t)number[3] << 16)
-                     | ((uint64_t)number[4] << 8)
-                     | number[5];
-    *value = negative
-        ? -((int64_t)((uint64_t)0x1FFFFFFFFFF - encoded))
-        : (int64_t)encoded;
-    return first_read + rest;
-  } else if((number[0] & 0x01) == 0) { // 48 bit signed number encoded in 7 bytes
-    size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 6);
-    if(rest < 6) return 0;
-    uint64_t encoded = ((uint64_t)number[1] << 40)
-                     | ((uint64_t)number[2] << 32)
-                     | ((uint64_t)number[3] << 24)
-                     | ((uint64_t)number[4] << 16)
-                     | ((uint64_t)number[5] << 8)
-                     | number[6];
-    *value = negative
-        ? -((int64_t)((uint64_t)0xFFFFFFFFFFFF - encoded))
-        : (int64_t)encoded;
-    return first_read + rest;
-  } else { // 64 bit signed number encoded in 9 bytes
+
+  if(negative) {
+    // Negative: length = leading zeros then a one. Prefix: 01 (1B), 001 (2B), 0001 (3B), ...
+    if((number[0] & 0x40) != 0) { // 1 byte, 6 bit. Prefix 01.
+      *value = -((~number[0]) & 0x3F);
+      return first_read;
+    }
+    if((number[0] & 0xE0) == 0x20) { // 2 bytes, 13 bit. Prefix 001.
+      size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
+      if(second_read == 0) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x1F) << 8) | number[1];
+      *value = -(0x1FFF - encoded);
+      return first_read + second_read;
+    }
+    if((number[0] & 0xF0) == 0x10) { // 3 bytes, 20 bit. Prefix 0001.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
+      if(rest < 2) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x0F) << 16)
+                       | ((uint64_t)number[1] << 8)
+                       | number[2];
+      *value = -((int64_t)((uint64_t)0xFFFFF - encoded));
+      return first_read + rest;
+    }
+    if((number[0] & 0xF8) == 0x08) { // 4 bytes, 27 bit. Prefix 00001.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 3);
+      if(rest < 3) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x07) << 24)
+                       | ((uint64_t)number[1] << 16)
+                       | ((uint64_t)number[2] << 8)
+                       | number[3];
+      *value = -((int64_t)((uint64_t)0x7FFFFFF - encoded));
+      return first_read + rest;
+    }
+    if((number[0] & 0xFC) == 0x04) { // 5 bytes, 34 bit. Prefix 000001.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 4);
+      if(rest < 4) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x03) << 32)
+                       | ((uint64_t)number[1] << 24)
+                       | ((uint64_t)number[2] << 16)
+                       | ((uint64_t)number[3] << 8)
+                       | number[4];
+      *value = -((int64_t)((uint64_t)0x3FFFFFFFF - encoded));
+      return first_read + rest;
+    }
+    if((number[0] & 0xFE) == 0x02) { // 6 bytes, 41 bit. Prefix 0000001.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 5);
+      if(rest < 5) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x01) << 40)
+                       | ((uint64_t)number[1] << 32)
+                       | ((uint64_t)number[2] << 24)
+                       | ((uint64_t)number[3] << 16)
+                       | ((uint64_t)number[4] << 8)
+                       | number[5];
+      *value = -((int64_t)((uint64_t)0x1FFFFFFFFFF - encoded));
+      return first_read + rest;
+    }
+    if(number[0] == 0x01) { // 7 bytes, 48 bit. Prefix 00000001.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 6);
+      if(rest < 6) return 0;
+      uint64_t encoded = ((uint64_t)number[1] << 40)
+                       | ((uint64_t)number[2] << 32)
+                       | ((uint64_t)number[3] << 24)
+                       | ((uint64_t)number[4] << 16)
+                       | ((uint64_t)number[5] << 8)
+                       | number[6];
+      *value = -((int64_t)((uint64_t)0xFFFFFFFFFFFF - encoded));
+      return first_read + rest;
+    }
+    // 9 bytes, 64 bit. Prefix 00000000.
     size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 8);
     if(rest < 8) return 0;
     uint64_t encoded = ((uint64_t)number[1] << 56)
@@ -437,9 +433,87 @@ size_t circular_buffer_peek_svarint(struct circular_buffer *buffer, size_t offse
                      | ((uint64_t)number[6] << 16)
                      | ((uint64_t)number[7] << 8)
                      | number[8];
-    *value = negative
-        ? -((int64_t)((uint64_t)0xFFFFFFFFFFFFFFFF - encoded))
-        : (int64_t)encoded;
+    *value = -((int64_t)((uint64_t)0xFFFFFFFFFFFFFFFF - encoded));
+    return first_read + rest;
+  } else {
+    // Positive: length = leading ones then a zero. Prefix: 10 (1B), 110 (2B), 1110 (3B), ...
+    if((number[0] & 0x40) == 0) { // 1 byte, 6 bit. Prefix 10.
+      *value = (number[0] & 0x3F);
+      return first_read;
+    }
+    if((number[0] & 0x20) == 0) { // 2 bytes, 13 bit. Prefix 110.
+      size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
+      if(second_read == 0) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x1F) << 8) | number[1];
+      *value = (int64_t)encoded;
+      return first_read + second_read;
+    }
+    if((number[0] & 0x10) == 0) { // 3 bytes, 20 bit. Prefix 1110.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
+      if(rest < 2) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x0F) << 16)
+                       | ((uint64_t)number[1] << 8)
+                       | number[2];
+      *value = (int64_t)encoded;
+      return first_read + rest;
+    }
+    if((number[0] & 0x08) == 0) { // 4 bytes, 27 bit. Prefix 11110.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 3);
+      if(rest < 3) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x07) << 24)
+                       | ((uint64_t)number[1] << 16)
+                       | ((uint64_t)number[2] << 8)
+                       | number[3];
+      *value = (int64_t)encoded;
+      return first_read + rest;
+    }
+    if((number[0] & 0x04) == 0) { // 5 bytes, 34 bit. Prefix 111110.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 4);
+      if(rest < 4) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x03) << 32)
+                       | ((uint64_t)number[1] << 24)
+                       | ((uint64_t)number[2] << 16)
+                       | ((uint64_t)number[3] << 8)
+                       | number[4];
+      *value = (int64_t)encoded;
+      return first_read + rest;
+    }
+    if((number[0] & 0x02) == 0) { // 41 bit signed number encoded in 6 bytes
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 5);
+      if(rest < 5) return 0;
+      uint64_t encoded = (((uint64_t)number[0] & 0x01) << 40)
+                       | ((uint64_t)number[1] << 32)
+                       | ((uint64_t)number[2] << 24)
+                       | ((uint64_t)number[3] << 16)
+                       | ((uint64_t)number[4] << 8)
+                       | number[5];
+      *value = (int64_t)encoded;
+      return first_read + rest;
+    }
+    if((number[0] & 0x01) == 0) { // 7 bytes, 48 bit. Prefix 11111110.
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 6);
+      if(rest < 6) return 0;
+      uint64_t encoded = ((uint64_t)number[1] << 40)
+                       | ((uint64_t)number[2] << 32)
+                       | ((uint64_t)number[3] << 24)
+                       | ((uint64_t)number[4] << 16)
+                       | ((uint64_t)number[5] << 8)
+                       | number[6];
+      *value = (int64_t)encoded;
+      return first_read + rest;
+    }
+    // 9 bytes, 64 bit. Prefix 11111111.
+    size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 8);
+    if(rest < 8) return 0;
+    uint64_t encoded = ((uint64_t)number[1] << 56)
+                     | ((uint64_t)number[2] << 48)
+                     | ((uint64_t)number[3] << 40)
+                     | ((uint64_t)number[4] << 32)
+                     | ((uint64_t)number[5] << 24)
+                     | ((uint64_t)number[6] << 16)
+                     | ((uint64_t)number[7] << 8)
+                     | number[8];
+    *value = (int64_t)encoded;
     return first_read + rest;
   }
 }
@@ -447,44 +521,96 @@ size_t circular_buffer_peek_svarint(struct circular_buffer *buffer, size_t offse
 size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offset, int64_t value) {
   bool negative = value < 0;
   uint64_t unsigned_value = negative ? (uint64_t)(-value) : (uint64_t)value;
-  if(unsigned_value < 0x40) { // 6 bit signed number encoded in 1 byte
-    uint8_t number = negative ? (uint8_t)((~unsigned_value) & 0x3F) : (uint8_t)(0x80 | unsigned_value);
-    return circular_buffer_poke(buffer, offset, &number, 1);
-  } else if(unsigned_value < 0x2000) { // 13 bit signed number encoded in 2 bytes
-    if(negative) {
+
+  if(negative) {
+    // Negative: length = leading zeros then a one. Prefix in first byte: 01 (1B), 001 (2B), 0001 (3B), ...
+    if(unsigned_value < 0x40) { // 1 byte, 6 bit. Prefix 01 (bit7=0, bit6=1).
+      uint8_t number = (uint8_t)(0x40 | ((~unsigned_value) & 0x3F));
+      return circular_buffer_poke(buffer, offset, &number, 1);
+    }
+    if(unsigned_value < 0x2000) { // 2 bytes, 13 bit. Prefix 001.
       uint8_t number[2] = {
-          (uint8_t)(0x40 | (((~unsigned_value) >> 8) & 0x1F)),
-          (uint8_t)(((~unsigned_value) & 0xFF))};
+          (uint8_t)(0x20 | (((~unsigned_value) >> 8) & 0x1F)),
+          (uint8_t)((~unsigned_value) & 0xFF)};
       return circular_buffer_poke(buffer, offset, number, 2);
-    } else {
+    }
+    if(unsigned_value < 0x100000) { // 3 bytes, 20 bit. Prefix 0001.
+      uint8_t number[3] = {
+          (uint8_t)(0x10 | (((~unsigned_value) >> 16) & 0x0F)),
+          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+          (uint8_t)((~unsigned_value) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 3);
+    }
+    if(unsigned_value < 0x8000000) { // 4 bytes, 27 bit. Prefix 00001.
+      uint8_t number[4] = {
+          (uint8_t)(0x08 | (((~unsigned_value) >> 24) & 0x07)),
+          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+          (uint8_t)((~unsigned_value) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 4);
+    }
+    if(unsigned_value < 0x400000000) { // 5 bytes, 34 bit. Prefix 000001.
+      uint8_t number[5] = {
+          (uint8_t)(0x04 | (((~unsigned_value) >> 32) & 0x03)),
+          (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+          (uint8_t)((~unsigned_value) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 5);
+    }
+    if(unsigned_value < 0x20000000000) { // 6 bytes, 41 bit. Prefix 0000001.
+      uint8_t number[6] = {
+          (uint8_t)(0x02 | (((~unsigned_value) >> 40) & 0x01)),
+          (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+          (uint8_t)((~unsigned_value) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 6);
+    }
+    if(unsigned_value < 0x1000000000000) { // 7 bytes, 48 bit. Prefix 00000001.
+      uint8_t number[7] = {
+          (uint8_t)(0x01),
+          (uint8_t)(((~unsigned_value) >> 40) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+          (uint8_t)((~unsigned_value) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 7);
+    }
+    // 9 bytes, 64 bit. Prefix 00000000.
+    uint8_t number[9] = {
+        (uint8_t)(0x00),
+        (uint8_t)(((~unsigned_value) >> 56) & 0xFF),
+        (uint8_t)(((~unsigned_value) >> 48) & 0xFF),
+        (uint8_t)(((~unsigned_value) >> 40) & 0xFF),
+        (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
+        (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
+        (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
+        (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
+        (uint8_t)((~unsigned_value) & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 9);
+  } else {
+    // Positive: length = leading ones then a zero. Prefix in first byte: 10 (1B), 110 (2B), 1110 (3B), ...
+    if(unsigned_value < 0x40) { // 1 byte, 6 bit. Prefix 10.
+      uint8_t number = (uint8_t)(0x80 | unsigned_value);
+      return circular_buffer_poke(buffer, offset, &number, 1);
+    }
+    if(unsigned_value < 0x2000) { // 2 bytes, 13 bit. Prefix 110.
       uint8_t number[2] = {
           (uint8_t)(0x80 | 0x40 | (unsigned_value >> 8)),
           (uint8_t)(unsigned_value & 0xFF)};
       return circular_buffer_poke(buffer, offset, number, 2);
     }
-  } else if(unsigned_value < 0x100000) { // 20 bit signed number encoded in 3 bytes
-    if(negative) {
-      uint8_t number[3] = {
-          (uint8_t)(0x60 | (((~unsigned_value) >> 16) & 0x0F)),
-          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
-          (uint8_t)(((~unsigned_value) & 0xFF))};
-      return circular_buffer_poke(buffer, offset, number, 3);
-    } else {
+    if(unsigned_value < 0x100000) { // 3 bytes, 20 bit. Prefix 1110.
       uint8_t number[3] = {
           (uint8_t)(0x80 | 0x60 | (unsigned_value >> 16)),
           (uint8_t)((unsigned_value >> 8) & 0xFF),
           (uint8_t)(unsigned_value & 0xFF)};
       return circular_buffer_poke(buffer, offset, number, 3);
     }
-  } else if(unsigned_value < 0x8000000) { // 27 bit signed number encoded in 4 bytes
-    if(negative) {
-      uint8_t number[4] = {
-          (uint8_t)(0x70 | (((~unsigned_value) >> 24) & 0x07)),
-          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
-          (uint8_t)(((~unsigned_value) & 0xFF))};
-      return circular_buffer_poke(buffer, offset, number, 4);
-    } else {
+    if(unsigned_value < 0x8000000) { // 4 bytes, 27 bit. Prefix 11110.
       uint8_t number[4] = {
           (uint8_t)(0x80 | 0x70 | (unsigned_value >> 24)),
           (uint8_t)((unsigned_value >> 16) & 0xFF),
@@ -492,16 +618,7 @@ size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offse
           (uint8_t)(unsigned_value & 0xFF)};
       return circular_buffer_poke(buffer, offset, number, 4);
     }
-  } else if(unsigned_value < 0x400000000) { // 34 bit signed number encoded in 5 bytes
-    if(negative) {
-      uint8_t number[5] = {
-          (uint8_t)(0x78 | (((~unsigned_value) >> 32) & 0x03)),
-          (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
-          (uint8_t)(((~unsigned_value) & 0xFF))};
-      return circular_buffer_poke(buffer, offset, number, 5);
-    } else {
+    if(unsigned_value < 0x400000000) { // 5 bytes, 34 bit. Prefix 111110.
       uint8_t number[5] = {
           (uint8_t)(0x80 | 0x78 | (unsigned_value >> 32)),
           (uint8_t)((unsigned_value >> 24) & 0xFF),
@@ -510,17 +627,7 @@ size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offse
           (uint8_t)(unsigned_value & 0xFF)};
       return circular_buffer_poke(buffer, offset, number, 5);
     }
-  } else if(unsigned_value < 0x20000000000) { // 41 bit signed number encoded in 6 bytes
-    if(negative) {
-      uint8_t number[6] = {
-          (uint8_t)(0x7C | (((~unsigned_value) >> 40) & 0x01)),
-          (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
-          (uint8_t)(((~unsigned_value) & 0xFF))};
-      return circular_buffer_poke(buffer, offset, number, 6);
-    } else {
+    if(unsigned_value < 0x20000000000) { // 6 bytes, 41 bit. Prefix 1111110.
       uint8_t number[6] = {
           (uint8_t)(0x80 | 0x7C | (unsigned_value >> 40)),
           (uint8_t)((unsigned_value >> 32) & 0xFF),
@@ -530,18 +637,7 @@ size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offse
           (uint8_t)(unsigned_value & 0xFF)};
       return circular_buffer_poke(buffer, offset, number, 6);
     }
-  } else if(unsigned_value < 0x1000000000000) { // 48 bit signed number encoded in 7 bytes
-    if(negative) {
-      uint8_t number[7] = {
-          (uint8_t)(0x7E),
-          (uint8_t)(((~unsigned_value) >> 40) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
-          (uint8_t)(((~unsigned_value) & 0xFF))};
-      return circular_buffer_poke(buffer, offset, number, 7);
-    } else {
+    if(unsigned_value < 0x1000000000000) { // 7 bytes, 48 bit. Prefix 11111110.
       uint8_t number[7] = {
           (uint8_t)(0x80 | 0x7E),
           (uint8_t)((unsigned_value >> 40) & 0xFF),
@@ -552,34 +648,18 @@ size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offse
           (uint8_t)(unsigned_value & 0xFF)};
       return circular_buffer_poke(buffer, offset, number, 7);
     }
-  } else { // 64 bit signed number encoded in 9 bytes
-    if(negative) {
-      uint8_t number[9] = {
-          (uint8_t)(0x7F),
-          (uint8_t)(((~unsigned_value) >> 56) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 48) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 40) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 32) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 24) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
-          (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
-          (uint8_t)(((~unsigned_value) & 0xFF))
-      };
-      return circular_buffer_poke(buffer, offset, number, 9);
-    } else {
-      uint8_t number[9] = {
-          (uint8_t)(0x80 | 0x7F),
-          (uint8_t)((unsigned_value >> 56) & 0xFF),
-          (uint8_t)((unsigned_value >> 48) & 0xFF),
-          (uint8_t)((unsigned_value >> 40) & 0xFF),
-          (uint8_t)((unsigned_value >> 32) & 0xFF),
-          (uint8_t)((unsigned_value >> 24) & 0xFF),
-          (uint8_t)((unsigned_value >> 16) & 0xFF),
-          (uint8_t)((unsigned_value >> 8) & 0xFF),
-          (uint8_t)(unsigned_value & 0xFF)
-      };
-      return circular_buffer_poke(buffer, offset, number, 9);
-    }
+    // 9 bytes, 64 bit. Prefix 11111111.
+    uint8_t number[9] = {
+        (uint8_t)(0x80 | 0x7F),
+        (uint8_t)((unsigned_value >> 56) & 0xFF),
+        (uint8_t)((unsigned_value >> 48) & 0xFF),
+        (uint8_t)((unsigned_value >> 40) & 0xFF),
+        (uint8_t)((unsigned_value >> 32) & 0xFF),
+        (uint8_t)((unsigned_value >> 24) & 0xFF),
+        (uint8_t)((unsigned_value >> 16) & 0xFF),
+        (uint8_t)((unsigned_value >> 8) & 0xFF),
+        (uint8_t)(unsigned_value & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 9);
   }
 }
 

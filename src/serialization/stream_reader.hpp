@@ -47,10 +47,13 @@ namespace serialization {
         debug("read_f64");
         std::uint64_t v;
         stream_.read((char*)&v, sizeof(v));
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        v = __builtin_bswap64(v);
+#endif
         if(v & 0x8000000000000000) {
-          v = ~ v;
-        } else {
           v ^= 0x8000000000000000;
+        } else {
+          v = ~v;
         }
         value = *(double*)(&v);
         debug("  read_f64 result %f", value);
@@ -280,66 +283,62 @@ namespace serialization {
         uint8_t number[9];
         number[0] = stream_.get();
         bool negative = (number[0] & 0x80) == 0;
-        if((number[0] & 0x40) == 0) { // 6 bit signed number encoded in 1 byte
-          return negative 
-            ? -((~number[0]) & 0x3F)
-            : (number[0] & 0x3F);
-        } else if((number[0] & 0x20) == 0) { // 13 bit signed number encoded in 2 bytes
-          number[1] = stream_.get();
-          uint64_t encoded = (((uint64_t)number[0] & 0x1F) << 8) | number[1];
-          return negative
-            ? -(0x1FFF - encoded)
-            : encoded;
-        } else if((number[0] & 0x10) == 0) { // 20 bit signed number encoded in 3 bytes
-          stream_.read((char*)number + 1, 2);
-          uint64_t encoded = (((uint64_t)number[0] & 0x0F) << 16)
-                           | ((uint64_t)number[1] << 8)
-                           | number[2];
-          return negative
-            ? -static_cast<std::int64_t>((uint64_t)0xFFFFF - encoded)
-            : static_cast<std::int64_t>(encoded);
-        } else if((number[0] & 0x08) == 0) { // 27 bit signed number encoded in 4 bytes
-          stream_.read((char*)number + 1, 3);
-          uint64_t encoded = (((uint64_t)number[0] & 0x07) << 24)
-                           | ((uint64_t)number[1] << 16)
-                           | ((uint64_t)number[2] << 8)
-                           | number[3];
-          return negative
-            ? -static_cast<std::int64_t>((uint64_t)0x7FFFFFF - encoded)
-            : static_cast<std::int64_t>(encoded);
-        } else if((number[0] & 0x04) == 0) { // 34 bit signed number encoded in 5 bytes
-          stream_.read((char*)number + 1, 4);
-          uint64_t encoded = (((uint64_t)number[0] & 0x03) << 32)
-                           | ((uint64_t)number[1] << 24)
-                           | ((uint64_t)number[2] << 16)
-                           | ((uint64_t)number[3] << 8)
-                           | number[4];
-          return negative
-            ? -static_cast<std::int64_t>((uint64_t)0x3FFFFFFFF - encoded)
-            : static_cast<std::int64_t>(encoded);
-        } else if((number[0] & 0x02) == 0) { // 41 bit signed number encoded in 6 bytes
-          stream_.read((char*)number + 1, 5);
-          uint64_t encoded = (((uint64_t)number[0] & 0x01) << 40)
-                           | ((uint64_t)number[1] << 32)
-                           | ((uint64_t)number[2] << 24)
-                           | ((uint64_t)number[3] << 16)
-                           | ((uint64_t)number[4] << 8)
-                           | number[5];
-          return negative
-            ? -static_cast<std::int64_t>((uint64_t)0x1FFFFFFFFFF - encoded)
-            : static_cast<std::int64_t>(encoded);
-        } else if((number[0] & 0x01) == 0) { // 48 bit signed number encoded in 7 bytes
-          stream_.read((char*)number + 1, 6);
-          uint64_t encoded = ((uint64_t)number[1] << 40)
-                           | ((uint64_t)number[2] << 32)
-                           | ((uint64_t)number[3] << 24)
-                           | ((uint64_t)number[4] << 16)
-                           | ((uint64_t)number[5] << 8)
-                           | number[6];
-          return negative
-            ? -static_cast<std::int64_t>((uint64_t)0xFFFFFFFFFFFF - encoded)
-            : static_cast<std::int64_t>(encoded);
-        } else { // 64 bit signed number encoded in 9 bytes
+
+        if(negative) {
+          // Negative: length = leading zeros then a one. Prefix: 01 (1B), 001 (2B), ...
+          if((number[0] & 0x40) != 0) { // 1 byte, 6 bit. Prefix 01.
+            return -((~number[0]) & 0x3F);
+          }
+          if((number[0] & 0xE0) == 0x20) { // 2 bytes, 13 bit. Prefix 001.
+            number[1] = stream_.get();
+            uint64_t encoded = (((uint64_t)number[0] & 0x1F) << 8) | number[1];
+            return -(0x1FFF - encoded);
+          }
+          if((number[0] & 0xF0) == 0x10) { // 3 bytes, 20 bit. Prefix 0001.
+            stream_.read((char*)number + 1, 2);
+            uint64_t encoded = (((uint64_t)number[0] & 0x0F) << 16)
+                             | ((uint64_t)number[1] << 8)
+                             | number[2];
+            return -static_cast<std::int64_t>((uint64_t)0xFFFFF - encoded);
+          }
+          if((number[0] & 0xF8) == 0x08) { // 4 bytes, 27 bit. Prefix 00001.
+            stream_.read((char*)number + 1, 3);
+            uint64_t encoded = (((uint64_t)number[0] & 0x07) << 24)
+                             | ((uint64_t)number[1] << 16)
+                             | ((uint64_t)number[2] << 8)
+                             | number[3];
+            return -static_cast<std::int64_t>((uint64_t)0x7FFFFFF - encoded);
+          }
+          if((number[0] & 0xFC) == 0x04) { // 5 bytes, 34 bit. Prefix 000001.
+            stream_.read((char*)number + 1, 4);
+            uint64_t encoded = (((uint64_t)number[0] & 0x03) << 32)
+                             | ((uint64_t)number[1] << 24)
+                             | ((uint64_t)number[2] << 16)
+                             | ((uint64_t)number[3] << 8)
+                             | number[4];
+            return -static_cast<std::int64_t>((uint64_t)0x3FFFFFFFF - encoded);
+          }
+          if((number[0] & 0xFE) == 0x02) { // 6 bytes, 41 bit. Prefix 0000001.
+            stream_.read((char*)number + 1, 5);
+            uint64_t encoded = (((uint64_t)number[0] & 0x01) << 40)
+                             | ((uint64_t)number[1] << 32)
+                             | ((uint64_t)number[2] << 24)
+                             | ((uint64_t)number[3] << 16)
+                             | ((uint64_t)number[4] << 8)
+                             | number[5];
+            return -static_cast<std::int64_t>((uint64_t)0x1FFFFFFFFFF - encoded);
+          }
+          if(number[0] == 0x01) { // 7 bytes, 48 bit. Prefix 00000001.
+            stream_.read((char*)number + 1, 6);
+            uint64_t encoded = ((uint64_t)number[1] << 40)
+                             | ((uint64_t)number[2] << 32)
+                             | ((uint64_t)number[3] << 24)
+                             | ((uint64_t)number[4] << 16)
+                             | ((uint64_t)number[5] << 8)
+                             | number[6];
+            return -static_cast<std::int64_t>((uint64_t)0xFFFFFFFFFFFF - encoded);
+          }
+          // 9 bytes, 64 bit. Prefix 00000000.
           stream_.read((char*)number + 1, 8);
           uint64_t encoded = ((uint64_t)number[1] << 56)
                            | ((uint64_t)number[2] << 48)
@@ -349,9 +348,72 @@ namespace serialization {
                            | ((uint64_t)number[6] << 16)
                            | ((uint64_t)number[7] << 8)
                            | number[8];
-          return negative
-            ? -static_cast<std::int64_t>((uint64_t)0xFFFFFFFFFFFFFFFF - encoded)
-            : static_cast<std::int64_t>(encoded);
+          return -static_cast<std::int64_t>((uint64_t)0xFFFFFFFFFFFFFFFF - encoded);
+        } else {
+          // Positive: length = leading ones then a zero. Prefix: 10 (1B), 110 (2B), ...
+          if((number[0] & 0x40) == 0) { // 1 byte, 6 bit. Prefix 10.
+            return (number[0] & 0x3F);
+          }
+          if((number[0] & 0x20) == 0) { // 2 bytes, 13 bit. Prefix 110.
+            number[1] = stream_.get();
+            uint64_t encoded = (((uint64_t)number[0] & 0x1F) << 8) | number[1];
+            return static_cast<std::int64_t>(encoded);
+          }
+          if((number[0] & 0x10) == 0) { // 3 bytes, 20 bit. Prefix 1110.
+            stream_.read((char*)number + 1, 2);
+            uint64_t encoded = (((uint64_t)number[0] & 0x0F) << 16)
+                             | ((uint64_t)number[1] << 8)
+                             | number[2];
+            return static_cast<std::int64_t>(encoded);
+          }
+          if((number[0] & 0x08) == 0) { // 4 bytes, 27 bit. Prefix 11110.
+            stream_.read((char*)number + 1, 3);
+            uint64_t encoded = (((uint64_t)number[0] & 0x07) << 24)
+                             | ((uint64_t)number[1] << 16)
+                             | ((uint64_t)number[2] << 8)
+                             | number[3];
+            return static_cast<std::int64_t>(encoded);
+          }
+          if((number[0] & 0x04) == 0) { // 5 bytes, 34 bit. Prefix 111110.
+            stream_.read((char*)number + 1, 4);
+            uint64_t encoded = (((uint64_t)number[0] & 0x03) << 32)
+                             | ((uint64_t)number[1] << 24)
+                             | ((uint64_t)number[2] << 16)
+                             | ((uint64_t)number[3] << 8)
+                             | number[4];
+            return static_cast<std::int64_t>(encoded);
+          }
+          if((number[0] & 0x02) == 0) { // 6 bytes, 41 bit. Prefix 1111110.
+            stream_.read((char*)number + 1, 5);
+            uint64_t encoded = (((uint64_t)number[0] & 0x01) << 40)
+                             | ((uint64_t)number[1] << 32)
+                             | ((uint64_t)number[2] << 24)
+                             | ((uint64_t)number[3] << 16)
+                             | ((uint64_t)number[4] << 8)
+                             | number[5];
+            return static_cast<std::int64_t>(encoded);
+          }
+          if((number[0] & 0x01) == 0) { // 7 bytes, 48 bit. Prefix 11111110.
+            stream_.read((char*)number + 1, 6);
+            uint64_t encoded = ((uint64_t)number[1] << 40)
+                             | ((uint64_t)number[2] << 32)
+                             | ((uint64_t)number[3] << 24)
+                             | ((uint64_t)number[4] << 16)
+                             | ((uint64_t)number[5] << 8)
+                             | number[6];
+            return static_cast<std::int64_t>(encoded);
+          }
+          // 9 bytes, 64 bit. Prefix 11111111.
+          stream_.read((char*)number + 1, 8);
+          uint64_t encoded = ((uint64_t)number[1] << 56)
+                           | ((uint64_t)number[2] << 48)
+                           | ((uint64_t)number[3] << 40)
+                           | ((uint64_t)number[4] << 32)
+                           | ((uint64_t)number[5] << 24)
+                           | ((uint64_t)number[6] << 16)
+                           | ((uint64_t)number[7] << 8)
+                           | number[8];
+          return static_cast<std::int64_t>(encoded);
         }
       }
     };
