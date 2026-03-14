@@ -141,14 +141,21 @@ int main() {
     bool rejected = false;
     std::string error_msg;
 
-    lb.client->call<std::int32_t>(3)->on_rejected([&](std::exception_ptr ep) {
+    // In synchronous loopback the promise is rejected before on_rejected is registered,
+    // so promise<T>::reject() re-throws. Catch it here.
+    try {
+      lb.client->call<std::int32_t>(3)->on_rejected([&](std::exception_ptr ep) {
+        rejected = true;
+        try {
+          std::rethrow_exception(ep);
+        } catch(const rpc_exception& e) {
+          error_msg = e.what();
+        }
+      });
+    } catch(const rpc_exception& e) {
       rejected = true;
-      try {
-        std::rethrow_exception(ep);
-      } catch(const rpc_exception& e) {
-        error_msg = e.what();
-      }
-    });
+      error_msg = e.what();
+    }
 
     expect(rejected == true);
     expect(error_msg == std::string("oops"));
@@ -160,9 +167,13 @@ int main() {
 
     bool rejected = false;
 
-    lb.client->call<std::int32_t>(999)->on_rejected([&](std::exception_ptr) {
+    try {
+      lb.client->call<std::int32_t>(999)->on_rejected([&](std::exception_ptr) {
+        rejected = true;
+      });
+    } catch(...) {
       rejected = true;
-    });
+    }
 
     expect(rejected == true);
   };

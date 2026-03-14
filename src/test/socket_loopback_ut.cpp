@@ -11,8 +11,9 @@ extern "C" {
 int main() {
   using namespace boost::ut;
 
-  constexpr size_t buffer_size = 256;
   constexpr size_t payload_size = 2048;
+  // Socket buffers must hold the full payload since the write loop runs before the transfer
+  constexpr size_t buffer_size = payload_size;
 
   "socket loopback pumps data larger than buffer"_test = [] {
     int r = sockets_init(2);

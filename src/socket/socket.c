@@ -27,8 +27,8 @@ int sockets_table_resize(size_t new_size) {
   if(new_size > 0) {
     new_table = malloc(sizeof(struct sockets_table) + new_size * sizeof(struct socket_info));
     if (!new_table) return -1;
+    new_table->size = new_size;
   }
-  new_table->size = new_size;
   size_t sockets_to_copy = sockets_table->size;
   if(new_size < sockets_to_copy) {
     sockets_to_copy = new_size;

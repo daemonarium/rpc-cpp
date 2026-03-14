@@ -60,7 +60,8 @@ int main() {
       data[i] = static_cast<std::uint8_t>(i % 256);
     }
 
-    struct circular_buffer* cb = circular_buffer_create(initial_buffer_size, nullptr);
+    // Buffer must be at least payload_size to hold all data for single-chunk write-then-read
+    struct circular_buffer* cb = circular_buffer_create(payload_size, nullptr);
     expect(cb != nullptr);
 
     size_t written = 0;
