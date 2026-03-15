@@ -242,7 +242,7 @@ size_t circular_buffer_commit_write(struct circular_buffer* buffer, size_t bytes
   return write_length;
 }
 
-size_t circular_buffer_peek_uvarint(struct circular_buffer *buffer, size_t offset, uint64_t *value) {
+size_t circular_buffer_peek_uvarint64(struct circular_buffer *buffer, size_t offset, uint64_t *value) {
   uint8_t number[9];
   size_t first_read = circular_buffer_peek(buffer, offset, number, 1);
   if(first_read == 0) return 0;
@@ -299,7 +299,7 @@ size_t circular_buffer_peek_uvarint(struct circular_buffer *buffer, size_t offse
   }
 }
 
-size_t circular_buffer_poke_uvarint(struct circular_buffer *buffer, size_t offset, uint64_t value) {
+size_t circular_buffer_poke_uvarint64(struct circular_buffer *buffer, size_t offset, uint64_t value) {
   if(value < 0x80) { // 7 bit number encoded in 1 byte
     uint8_t number = value;
     return circular_buffer_poke(buffer, offset, &number, 1);
@@ -335,21 +335,98 @@ size_t circular_buffer_poke_uvarint(struct circular_buffer *buffer, size_t offse
   }
 }
 
-size_t circular_buffer_read_uvarint(struct circular_buffer *buffer, uint64_t *value) {
-  size_t read_length = circular_buffer_peek_uvarint(buffer, 0, value);
+size_t circular_buffer_read_uvarint64(struct circular_buffer *buffer, uint64_t *value) {
+  size_t read_length = circular_buffer_peek_uvarint64(buffer, 0, value);
   if(read_length == 0) return 0;
   circular_buffer_skip_read(buffer, read_length);
   return read_length;
 }
 
-size_t circular_buffer_write_uvarint(struct circular_buffer *buffer, uint64_t value) {
-  size_t write_length = circular_buffer_poke_uvarint(buffer, 0, value);
+size_t circular_buffer_write_uvarint64(struct circular_buffer *buffer, uint64_t value) {
+  size_t write_length = circular_buffer_poke_uvarint64(buffer, 0, value);
   if(write_length == 0) return 0;
   circular_buffer_commit_write(buffer, write_length);
   return write_length;
 }
 
-size_t circular_buffer_peek_svarint(struct circular_buffer *buffer, size_t offset, int64_t *value) {
+size_t circular_buffer_peek_uvarint32(struct circular_buffer *buffer, size_t offset, uint32_t *value) {
+  uint8_t number[5];
+  size_t first_read = circular_buffer_peek(buffer, offset, number, 1);
+  if(first_read == 0) return 0;
+  if((number[0] & 0x80) == 0) { /* 7 bit, 1 byte */
+    *value = number[0];
+    return first_read;
+  }
+  if((number[0] & 0x40) == 0) { /* 14 bit, 2 bytes */
+    size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
+    if(second_read == 0) return 0;
+    *value = ((uint32_t)(number[0] & 0x3F) << 8) | number[1];
+    return first_read + second_read;
+  }
+  if((number[0] & 0x20) == 0) { /* 21 bit, 3 bytes */
+    size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
+    if(second_read == 0) return 0;
+    *value = ((uint32_t)(number[0] & 0x1F) << 16) | ((uint32_t)number[1] << 8) | number[2];
+    return first_read + second_read;
+  }
+  if((number[0] & 0x10) == 0) { /* 28 bit, 4 bytes */
+    size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 3);
+    if(second_read == 0) return 0;
+    *value = ((uint32_t)(number[0] & 0x0F) << 24) | ((uint32_t)number[1] << 16)
+        | ((uint32_t)number[2] << 8) | number[3];
+    return first_read + second_read;
+  }
+  if((number[0] & 0x08) == 0) { /* 32 bit, 5 bytes. High 3 bits must be 0 for 32-bit range. */
+    size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 4);
+    if(second_read == 0) return 0;
+    if((number[0] & 0x07) != 0) return 0; /* overflow: would exceed 32 bits */
+    *value = ((uint32_t)number[1] << 24) | ((uint32_t)number[2] << 16)
+        | ((uint32_t)number[3] << 8) | number[4];
+    return first_read + second_read;
+  }
+  /* 6+ bytes not valid for uvarint32 */
+  return 0;
+}
+
+size_t circular_buffer_poke_uvarint32(struct circular_buffer *buffer, size_t offset, uint32_t value) {
+  if(value < 0x80) {
+    uint8_t number = (uint8_t)value;
+    return circular_buffer_poke(buffer, offset, &number, 1);
+  }
+  if(value < 0x4000) {
+    uint8_t number[2] = {(uint8_t)(0x80 | (value >> 8)), (uint8_t)(value & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 2);
+  }
+  if(value < 0x200000) {
+    uint8_t number[3] = {(uint8_t)(0xC0 | (value >> 16)), (uint8_t)((value >> 8) & 0xFF), (uint8_t)(value & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 3);
+  }
+  if(value < 0x10000000) {
+    uint8_t number[4] = {(uint8_t)(0xE0 | (value >> 24)), (uint8_t)((value >> 16) & 0xFF),
+        (uint8_t)((value >> 8) & 0xFF), (uint8_t)(value & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 4);
+  }
+  /* 32 bit, 5 bytes. Prefix 0xF0 (no high bits for 32-bit). */
+  uint8_t number[5] = {0xF0, (uint8_t)((value >> 24) & 0xFF), (uint8_t)((value >> 16) & 0xFF),
+      (uint8_t)((value >> 8) & 0xFF), (uint8_t)(value & 0xFF)};
+  return circular_buffer_poke(buffer, offset, number, 5);
+}
+
+size_t circular_buffer_read_uvarint32(struct circular_buffer *buffer, uint32_t *value) {
+  size_t read_length = circular_buffer_peek_uvarint32(buffer, 0, value);
+  if(read_length == 0) return 0;
+  circular_buffer_skip_read(buffer, read_length);
+  return read_length;
+}
+
+size_t circular_buffer_write_uvarint32(struct circular_buffer *buffer, uint32_t value) {
+  size_t write_length = circular_buffer_poke_uvarint32(buffer, 0, value);
+  if(write_length == 0) return 0;
+  circular_buffer_commit_write(buffer, write_length);
+  return write_length;
+}
+
+size_t circular_buffer_peek_svarint64(struct circular_buffer *buffer, size_t offset, int64_t *value) {
   uint8_t number[9];
   size_t first_read = circular_buffer_peek(buffer, offset, number, 1);
   if(first_read == 0) return 0;
@@ -518,7 +595,7 @@ size_t circular_buffer_peek_svarint(struct circular_buffer *buffer, size_t offse
   }
 }
 
-size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offset, int64_t value) {
+size_t circular_buffer_poke_svarint64(struct circular_buffer *buffer, size_t offset, int64_t value) {
   bool negative = value < 0;
   uint64_t unsigned_value = negative ? (uint64_t)(-value) : (uint64_t)value;
 
@@ -547,7 +624,7 @@ size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offse
           (uint8_t)(((~unsigned_value) >> 16) & 0xFF),
           (uint8_t)(((~unsigned_value) >> 8) & 0xFF),
           (uint8_t)((~unsigned_value) & 0xFF)};
-      return circular_buffer_poke(buffer, offset, number, 4);
+      return circular_buffer_poke(buffer, offset, number, 4);      
     }
     if(unsigned_value < 0x400000000) { // 5 bytes, 34 bit. Prefix 000001.
       uint8_t number[5] = {
@@ -663,15 +740,321 @@ size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offse
   }
 }
 
-size_t circular_buffer_read_svarint(struct circular_buffer *buffer, int64_t *value) {
-  size_t read_length = circular_buffer_peek_svarint(buffer, 0, value);
+size_t circular_buffer_read_svarint64(struct circular_buffer *buffer, int64_t *value) {
+  size_t read_length = circular_buffer_peek_svarint64(buffer, 0, value);
   if(read_length == 0) return 0;
   circular_buffer_skip_read(buffer, read_length);
   return read_length;
 }
 
-size_t circular_buffer_write_svarint(struct circular_buffer *buffer, int64_t value) {
-  size_t write_length = circular_buffer_poke_svarint(buffer, 0, value);
+size_t circular_buffer_write_svarint64(struct circular_buffer *buffer, int64_t value) {
+  size_t write_length = circular_buffer_poke_svarint64(buffer, 0, value);
+  if(write_length == 0) return 0;
+  circular_buffer_commit_write(buffer, write_length);
+  return write_length;
+}
+
+size_t circular_buffer_peek_svarint32(struct circular_buffer *buffer, size_t offset, int32_t *value) {
+  uint8_t number[5];
+  size_t first_read = circular_buffer_peek(buffer, offset, number, 1);
+  if(first_read == 0) return 0;
+  if((number[0] & 0x80) == 0) {
+    /* Negative: leading zeros then one */
+    if((number[0] & 0x40) != 0) { /* 1 byte, 6 bit */
+      *value = -(int32_t)((~(uint32_t)number[0]) & 0x3F);
+      return first_read;
+    }
+    if((number[0] & 0xE0) == 0x20) { /* 2 bytes, 13 bit */
+      size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
+      if(second_read == 0) return 0;
+      uint32_t encoded = ((uint32_t)(number[0] & 0x1F) << 8) | number[1];
+      *value = -(int32_t)(0x1FFF - encoded);
+      return first_read + second_read;
+    }
+    if((number[0] & 0xF0) == 0x10) { /* 3 bytes, 20 bit */
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
+      if(rest < 2) return 0;
+      uint32_t encoded = ((uint32_t)(number[0] & 0x0F) << 16) | ((uint32_t)number[1] << 8) | number[2];
+      *value = -(int32_t)(0xFFFFF - encoded);
+      return first_read + rest;
+    }
+    if((number[0] & 0xF8) == 0x08) { /* 4 bytes, 27 bit */
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 3);
+      if(rest < 3) return 0;
+      uint32_t encoded = ((uint32_t)(number[0] & 0x07) << 24) | ((uint32_t)number[1] << 16)
+          | ((uint32_t)number[2] << 8) | number[3];
+      *value = -(int32_t)(0x7FFFFFF - encoded);
+      return first_read + rest;
+    }
+    if((number[0] & 0xFC) == 0x04) { /* 5 bytes, 34 bit. Decode with 32-bit only. */
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 4);
+      if(rest < 4) return 0;
+      uint32_t encoded = ((uint32_t)number[1] << 24) | ((uint32_t)number[2] << 16)
+          | ((uint32_t)number[3] << 8) | number[4];    
+      uint32_t mag_lo = 0xFFFFFFFF - encoded;
+      *value = -(int32_t)mag_lo;
+      return first_read + rest;
+    }
+    /* 6+ bytes not valid for svarint32 */
+    return 0;
+  } else {
+    /* Positive: leading ones then zero */
+    if((number[0] & 0x40) == 0) { /* 1 byte, 6 bit */
+      *value = (int32_t)(number[0] & 0x3F);
+      return first_read;
+    }
+    if((number[0] & 0x20) == 0) { /* 2 bytes, 13 bit */
+      size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
+      if(second_read == 0) return 0;
+      uint32_t encoded = ((uint32_t)(number[0] & 0x1F) << 8) | number[1];
+      *value = (int32_t)encoded;
+      return first_read + second_read;
+    }
+    if((number[0] & 0x10) == 0) { /* 3 bytes, 20 bit */
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
+      if(rest < 2) return 0;
+      uint32_t encoded = ((uint32_t)(number[0] & 0x0F) << 16) | ((uint32_t)number[1] << 8) | number[2];
+      *value = (int32_t)encoded;
+      return first_read + rest;
+    }
+    if((number[0] & 0x08) == 0) { /* 4 bytes, 27 bit */
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 3);
+      if(rest < 3) return 0;
+      uint32_t encoded = ((uint32_t)(number[0] & 0x07) << 24) | ((uint32_t)number[1] << 16)
+          | ((uint32_t)number[2] << 8) | number[3];
+      if(encoded > 0x7FFFFFFF) return 0; /* overflow for int32_t */
+      *value = (int32_t)encoded;
+      return first_read + rest;
+    }
+    if((number[0] & 0x04) == 0) { /* 5 bytes, 34 bit. Only low 32 bits for int32_t. */
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 4);
+      if(rest < 4) return 0;
+      if((number[0] & 0x03) != 0) return 0; /* high bits set: would exceed int32_t */
+      uint32_t encoded = ((uint32_t)number[1] << 24) | ((uint32_t)number[2] << 16)
+          | ((uint32_t)number[3] << 8) | number[4];
+      *value = (int32_t)encoded;
+      return first_read + rest;
+    }
+    /* 6+ bytes not valid for svarint32 */
+    return 0;
+  }
+}
+
+size_t circular_buffer_poke_svarint32(struct circular_buffer *buffer, size_t offset, int32_t value) {
+  uint32_t u;
+  if(value < 0) {
+    u = (uint32_t)(-(uint32_t)value);
+    if(u <= 0x3F) {
+      uint8_t number = (uint8_t)(0x40 | ((~u) & 0x3F));
+      return circular_buffer_poke(buffer, offset, &number, 1);
+    }
+    if(u <= 0x1FFF) {
+      uint8_t number[2] = {(uint8_t)(0x20 | (((~u) >> 8) & 0x1F)), (uint8_t)((~u) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 2);
+    }
+    if(u <= 0xFFFFF) {
+      uint8_t number[3] = {(uint8_t)(0x10 | (((~u) >> 16) & 0x0F)), (uint8_t)(((~u) >> 8) & 0xFF), (uint8_t)((~u) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 3);
+    }
+    if(u <= 0x7FFFFFF) {
+      uint8_t number[4] = {(uint8_t)(0x08 | (((~u) >> 24) & 0x07)), (uint8_t)(((~u) >> 16) & 0xFF),
+          (uint8_t)(((~u) >> 8) & 0xFF), (uint8_t)((~u) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 4);
+    }
+    /* 5 bytes, 34 bit. u up to 0x80000000. Match 64-bit: high bits of ~u are 1, so byte0 = 0x04|0x03 = 0x07. */
+    if(u > 0x80000000) return 0; /* INT32_MIN magnitude */
+    uint8_t number[5] = {0x07, (uint8_t)(((~u) >> 24) & 0xFF), (uint8_t)(((~u) >> 16) & 0xFF),
+        (uint8_t)(((~u) >> 8) & 0xFF), (uint8_t)((~u) & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 5);
+  } else {
+    u = (uint32_t)value;
+    if(u <= 0x3F) {
+      uint8_t number = (uint8_t)(0x80 | u);
+      return circular_buffer_poke(buffer, offset, &number, 1);
+    }
+    if(u <= 0x1FFF) {
+      uint8_t number[2] = {(uint8_t)(0xC0 | (u >> 8)), (uint8_t)(u & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 2);
+    }
+    if(u <= 0xFFFFF) {
+      uint8_t number[3] = {(uint8_t)(0xE0 | (u >> 16)), (uint8_t)((u >> 8) & 0xFF), (uint8_t)(u & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 3);
+    }
+    if(u <= 0x7FFFFFF) {
+      uint8_t number[4] = {(uint8_t)(0xF0 | (u >> 24)), (uint8_t)((u >> 16) & 0xFF),
+          (uint8_t)((u >> 8) & 0xFF), (uint8_t)(u & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 4);
+    }
+    /* 5 bytes. u in [0x8000000, 0x7FFFFFFF]. Prefix 111110, first byte 0xF8 (u>>32 is 0 for 32-bit). */
+    uint8_t number[5] = {0xF8, (uint8_t)((u >> 24) & 0xFF), (uint8_t)((u >> 16) & 0xFF),
+        (uint8_t)((u >> 8) & 0xFF), (uint8_t)(u & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 5);
+  }
+}
+
+size_t circular_buffer_read_svarint32(struct circular_buffer *buffer, int32_t *value) {
+  size_t read_length = circular_buffer_peek_svarint32(buffer, 0, value);
+  if(read_length == 0) return 0;
+  circular_buffer_skip_read(buffer, read_length);
+  return read_length;
+}
+
+size_t circular_buffer_write_svarint32(struct circular_buffer *buffer, int32_t value) {
+  size_t write_length = circular_buffer_poke_svarint32(buffer, 0, value);
+  if(write_length == 0) return 0;
+  circular_buffer_commit_write(buffer, write_length);
+  return write_length;
+}
+
+/* --- uvarint16 / svarint16: 16-bit only, same encoding as 64-bit for values in 16-bit range --- */
+
+size_t circular_buffer_peek_uvarint16(struct circular_buffer *buffer, size_t offset, uint16_t *value) {
+  uint8_t number[3];
+  size_t first_read = circular_buffer_peek(buffer, offset, number, 1);
+  if(first_read == 0) return 0;
+  if((number[0] & 0x80) == 0) { /* 7 bit, 1 byte */
+    *value = number[0];
+    return first_read;
+  }
+  if((number[0] & 0x40) == 0) { /* 14 bit, 2 bytes */
+    size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
+    if(second_read == 0) return 0;
+    *value = (uint16_t)(((uint16_t)(number[0] & 0x3F) << 8) | number[1]);
+    return first_read + second_read;
+  }
+  if((number[0] & 0x20) == 0) { /* 21 bit, 3 bytes. High 5 bits must be 0 for 16-bit range. */
+    size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
+    if(second_read == 0) return 0;
+    if((number[0] & 0x1F) != 0) return 0; /* overflow: would exceed 16 bits */
+    *value = (uint16_t)(((uint16_t)number[1] << 8) | number[2]);
+    return first_read + second_read;
+  }
+  /* 4+ bytes not valid for uvarint16 */
+  return 0;
+}
+
+size_t circular_buffer_poke_uvarint16(struct circular_buffer *buffer, size_t offset, uint16_t value) {
+  if(value < 0x80) {
+    uint8_t number = (uint8_t)value;
+    return circular_buffer_poke(buffer, offset, &number, 1);
+  }
+  if(value < 0x4000) {
+    uint8_t number[2] = {(uint8_t)(0x80 | (value >> 8)), (uint8_t)(value & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 2);
+  }
+  /* 16 bit, 3 bytes. Prefix 0xC0 (no high bits for 16-bit). */
+  uint8_t number[3] = {0xC0, (uint8_t)((value >> 8) & 0xFF), (uint8_t)(value & 0xFF)};
+  return circular_buffer_poke(buffer, offset, number, 3);
+}
+
+size_t circular_buffer_read_uvarint16(struct circular_buffer *buffer, uint16_t *value) {
+  size_t read_length = circular_buffer_peek_uvarint16(buffer, 0, value);
+  if(read_length == 0) return 0;
+  circular_buffer_skip_read(buffer, read_length);
+  return read_length;
+}
+
+size_t circular_buffer_write_uvarint16(struct circular_buffer *buffer, uint16_t value) {
+  size_t write_length = circular_buffer_poke_uvarint16(buffer, 0, value);
+  if(write_length == 0) return 0;
+  circular_buffer_commit_write(buffer, write_length);
+  return write_length;
+}
+
+size_t circular_buffer_peek_svarint16(struct circular_buffer *buffer, size_t offset, int16_t *value) {
+  uint8_t number[3];
+  size_t first_read = circular_buffer_peek(buffer, offset, number, 1);
+  if(first_read == 0) return 0;
+  if((number[0] & 0x80) == 0) {
+    /* Negative: leading zeros then one */
+    if((number[0] & 0x40) != 0) { /* 1 byte, 6 bit */
+      *value = -(int16_t)(uint16_t)((~(uint16_t)(uint8_t)number[0]) & 0x3F);
+      return first_read;
+    }
+    if((number[0] & 0xE0) == 0x20) { /* 2 bytes, 13 bit */
+      size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
+      if(second_read == 0) return 0;
+      uint16_t encoded = (uint16_t)(((uint16_t)(number[0] & 0x1F) << 8) | number[1]);
+      *value = -(int16_t)(uint16_t)(0x1FFF - encoded);
+      return first_read + second_read;
+    }
+    if((number[0] & 0xF0) == 0x10) { /* 3 bytes, 20 bit. Magnitude = 0xFFFFF - encoded. */
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
+      if(rest < 2) return 0;
+      uint32_t encoded = ((uint32_t)(number[0] & 0x0F) << 16) | ((uint32_t)number[1] << 8) | number[2];
+      uint32_t mag = 0xFFFFF - encoded;/* overflow: magnitude too large for int16_t */
+      *value = -(int16_t)(uint16_t)mag;
+      return first_read + rest;
+    }
+    /* 4+ bytes not valid for svarint16 */
+    return 0;
+  } else {
+    /* Positive: leading ones then zero */
+    if((number[0] & 0x40) == 0) { /* 1 byte, 6 bit */
+      *value = (int16_t)(uint16_t)(number[0] & 0x3F);
+      return first_read;
+    }
+    if((number[0] & 0x20) == 0) { /* 2 bytes, 13 bit */
+      size_t second_read = circular_buffer_peek(buffer, offset + 1, number + 1, 1);
+      if(second_read == 0) return 0;
+      uint16_t encoded = (uint16_t)(((uint16_t)(number[0] & 0x1F) << 8) | number[1]);
+      *value = (int16_t)encoded;
+      return first_read + second_read;
+    }
+    if((number[0] & 0x10) == 0) { /* 3 bytes, 20 bit. Only low 16 bits for int16_t. */
+      size_t rest = circular_buffer_peek(buffer, offset + 1, number + 1, 2);
+      if(rest < 2) return 0;
+      uint16_t encoded = (uint16_t)(((uint16_t)number[1] << 8) | number[2]);
+      *value = (int16_t)encoded;
+      return first_read + rest;
+    }
+    /* 4+ bytes not valid for svarint16 */
+    return 0;
+  }
+}
+
+size_t circular_buffer_poke_svarint16(struct circular_buffer *buffer, size_t offset, int16_t value) {
+  uint16_t u;
+  if(value < 0) {
+    u = (uint16_t)(-(uint16_t)value);
+    if(u <= 0x3F) {
+      uint8_t number = (uint8_t)(0x40 | ((~u) & 0x3F));
+      return circular_buffer_poke(buffer, offset, &number, 1);
+    }
+    if(u <= 0x1FFF) {
+      uint8_t number[2] = {(uint8_t)(0x20 | (((~u) >> 8) & 0x1F)), (uint8_t)((~u) & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 2);
+    }
+    /* 3 bytes, 20 bit. u up to 0x8000. encoded = 0xFFFFF - u to match 32/64-bit. */
+    if(u > 0x8000) return 0; /* INT16_MIN magnitude */
+    uint32_t encoded = (uint32_t)0xF0000 + (uint32_t)(0xFFFF - u);
+    uint8_t number[3] = {(uint8_t)(0x10 | (encoded >> 16)), (uint8_t)((encoded >> 8) & 0xFF), (uint8_t)(encoded & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 3);
+  } else {
+    u = (uint16_t)value;
+    if(u <= 0x3F) {
+      uint8_t number = (uint8_t)(0x80 | u);
+      return circular_buffer_poke(buffer, offset, &number, 1);
+    }
+    if(u <= 0x1FFF) {
+      uint8_t number[2] = {(uint8_t)(0xC0 | (u >> 8)), (uint8_t)(u & 0xFF)};
+      return circular_buffer_poke(buffer, offset, number, 2);
+    }
+    /* 3 bytes. u in [0x2000, 0x7FFF]. Prefix 1110, first byte 0xE0 | (u>>16); u>>16 is 0 for 16-bit so 0xE0. */
+    uint8_t number[3] = {0xE0, (uint8_t)((u >> 8) & 0xFF), (uint8_t)(u & 0xFF)};
+    return circular_buffer_poke(buffer, offset, number, 3);
+  }
+}
+
+size_t circular_buffer_read_svarint16(struct circular_buffer *buffer, int16_t *value) {
+  size_t read_length = circular_buffer_peek_svarint16(buffer, 0, value);
+  if(read_length == 0) return 0;
+  circular_buffer_skip_read(buffer, read_length);
+  return read_length;
+}
+
+size_t circular_buffer_write_svarint16(struct circular_buffer *buffer, int16_t value) {
+  size_t write_length = circular_buffer_poke_svarint16(buffer, 0, value);
   if(write_length == 0) return 0;
   circular_buffer_commit_write(buffer, write_length);
   return write_length;

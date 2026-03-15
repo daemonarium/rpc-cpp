@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <string>
 
+#ifdef __EMSCRIPTEN__
+
 extern "C" {
   __attribute__((import_module("waos"), import_name("waos_socket_flush")))
   void waos_socket_flush(std::uint32_t socket);
@@ -20,6 +22,15 @@ extern "C" {
   __attribute__((import_module("waos"), import_name("waos_socket_input_drain")))
   void waos_socket_input_drain(std::uint32_t socket);
 }
+
+#else
+
+extern "C" {
+  void waos_socket_flush(std::uint32_t socket);
+  void waos_socket_input_drain(std::uint32_t socket);
+}
+
+#endif
 
 namespace serialization {
 

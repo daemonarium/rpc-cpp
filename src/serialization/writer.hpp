@@ -12,7 +12,14 @@ namespace serialization {
   concept Writer = requires(W& writer) {
     { writer.write_u64(23) } -> std::same_as<void>;
     { writer.write_i64(-23) } -> std::same_as<void>;
+    { writer.write_u32(23) } -> std::same_as<void>;
+    { writer.write_i32(-23) } -> std::same_as<void>;
+    { writer.write_u16(23) } -> std::same_as<void>;
+    { writer.write_i16(-23) } -> std::same_as<void>;
+    { writer.write_u8(std::uint8_t(23)) } -> std::same_as<void>;
+    { writer.write_i8(std::int8_t(-23)) } -> std::same_as<void>;
     { writer.write_f64(2.3) } -> std::same_as<void>;
+    { writer.write_f32(2.3f) } -> std::same_as<void>;
     { writer.write_string("test") } -> std::same_as<void>;
     { writer.write_bool(true) } -> std::same_as<void>;
     { writer.write_binary(std::vector<std::uint8_t>()) } -> std::same_as<void>;
@@ -44,7 +51,14 @@ namespace serialization {
 
       void write_u64(std::uint64_t value) { throw new std::runtime_error("writeU64 not implemented"); }
       void write_i64(std::int64_t value) { throw new std::runtime_error("writeI64 not implemented"); }
+      void write_u32(std::uint32_t value) { throw new std::runtime_error("writeU32 not implemented"); }
+      void write_i32(std::int32_t value) { throw new std::runtime_error("writeI32 not implemented"); }
+      void write_u16(std::uint16_t value) { throw new std::runtime_error("writeU16 not implemented"); }
+      void write_i16(std::int16_t value) { throw new std::runtime_error("writeI16 not implemented"); }
+      void write_u8(std::uint8_t value) { throw new std::runtime_error("writeU8 not implemented"); }
+      void write_i8(std::int8_t value) { throw new std::runtime_error("writeI8 not implemented"); }
       void write_f64(double value) { throw new std::runtime_error("writeF64 not implemented"); }
+      void write_f32(float value) { throw new std::runtime_error("writeF32 not implemented"); }
       void write_string(std::string_view value) { throw new std::runtime_error("writeString not implemented"); }
       void write_bool(bool value) { throw new std::runtime_error("writeBool not implemented"); }
       void write_binary(std::vector<std::uint8_t>&& value) { throw new std::runtime_error("writeBinary not implemented"); }

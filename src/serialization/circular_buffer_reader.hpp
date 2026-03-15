@@ -52,6 +52,31 @@ namespace serialization {
         value = read_svar_int();
       }
 
+      void read_u32(std::uint32_t& value) {
+        value = read_uvar_int_32();
+      }
+
+      void read_i32(std::int32_t& value) {
+        value = read_svar_int_32();
+      }
+
+      void read_u16(std::uint16_t& value) {
+        value = read_uvar_int_16();
+      }
+
+      void read_i16(std::int16_t& value) {
+        value = read_svar_int_16();
+      }
+
+      void read_u8(std::uint8_t& value) {
+        read_bytes(&value, 1);
+      }
+      void read_i8(std::int8_t& value) {
+        uint8_t byte = 0;
+        read_bytes(&byte, 1);
+        value = byte ^ 0x80;
+      }
+
       void read_f64(double& value) {
         std::uint64_t v;
         read_bytes(&v, sizeof(v));
@@ -65,6 +90,21 @@ namespace serialization {
           v = ~v;          
         }
         value = *(double*)(&v);
+      }
+
+      void read_f32(float& value) {
+        std::uint32_t v;
+        read_bytes(&v, sizeof(v));
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        // We're on a little-endian system, so reverse the byte order before reading
+        v = __builtin_bswap32(v);
+#endif
+        if(v & 0x80000000) {
+          v ^= 0x80000000;
+        } else {
+          v = ~v;          
+        }
+        value = *(float*)(&v);
       }
 
       void read_bool(bool& value) {
@@ -233,7 +273,7 @@ namespace serialization {
 
       std::uint64_t read_uvar_int() {
         uint64_t value = 0;
-        size_t read = circular_buffer_peek_uvarint(buffer_, read_offset_, &value);
+        size_t read = circular_buffer_peek_uvarint64(buffer_, read_offset_, &value);
         if(read == 0) {
           throw underflow_error();
         }
@@ -243,10 +283,42 @@ namespace serialization {
 
       std::int64_t read_svar_int() {
         int64_t value = 0;
-        size_t read = circular_buffer_peek_svarint(buffer_, read_offset_, &value);
+        size_t read = circular_buffer_peek_svarint64(buffer_, read_offset_, &value);
         if(read == 0) {
           throw underflow_error();
         }
+        read_offset_ += read;
+        return value;
+      }
+
+      std::uint32_t read_uvar_int_32() {
+        uint32_t value = 0;
+        size_t read = circular_buffer_peek_uvarint32(buffer_, read_offset_, &value);
+        if(read == 0) throw underflow_error();
+        read_offset_ += read;
+        return value;
+      }
+
+      std::int32_t read_svar_int_32() {
+        int32_t value = 0;
+        size_t read = circular_buffer_peek_svarint32(buffer_, read_offset_, &value);
+        if(read == 0) throw underflow_error();
+        read_offset_ += read;
+        return value;
+      }
+
+      std::uint16_t read_uvar_int_16() {
+        uint16_t value = 0;
+        size_t read = circular_buffer_peek_uvarint16(buffer_, read_offset_, &value);
+        if(read == 0) throw underflow_error();
+        read_offset_ += read;
+        return value;
+      }
+
+      std::int16_t read_svar_int_16() {
+        int16_t value = 0;
+        size_t read = circular_buffer_peek_svarint16(buffer_, read_offset_, &value);
+        if(read == 0) throw underflow_error();
         read_offset_ += read;
         return value;
       }

@@ -236,20 +236,20 @@ void socket_handle_drain(int socket) {
 
 size_t socket_read_uvarint(int socket, uint64_t *value) {
   struct socket_info *socket_info = get_socket_info(socket);
-  return circular_buffer_read_uvarint(&socket_info->input_buffer, value);
+  return circular_buffer_read_uvarint64(&socket_info->input_buffer, value);
 }
 
 size_t socket_write_uvarint(int socket, const uint64_t value) {
   struct socket_info *socket_info = get_socket_info(socket);
-  return circular_buffer_write_uvarint(&socket_info->output_buffer, value);
+  return circular_buffer_write_uvarint64(&socket_info->output_buffer, value);
 }
 
 size_t socket_peek_uvarint(int socket, size_t offset, uint64_t *value) {
   struct socket_info *socket_info = get_socket_info(socket);
-  return circular_buffer_peek_uvarint(&socket_info->input_buffer, offset, value);
+  return circular_buffer_peek_uvarint64(&socket_info->input_buffer, offset, value);
 }
 
 size_t socket_poke_uvarint(int socket, size_t offset, const uint64_t value) {
   struct socket_info *socket_info = get_socket_info(socket);
-  return circular_buffer_poke_uvarint(&socket_info->output_buffer, offset, value);
+  return circular_buffer_poke_uvarint64(&socket_info->output_buffer, offset, value);
 }

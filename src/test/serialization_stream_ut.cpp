@@ -47,11 +47,52 @@ namespace {
     return std::vector<std::uint8_t>(s.begin(), s.end());
   }
 
+  std::vector<std::uint8_t> uvarint32_to_bytes(std::uint32_t value) {
+    std::ostringstream os;
+    stream_writer w(os);
+    w.write_u32(value);
+    std::string s = os.str();
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+  }
+
+  std::vector<std::uint8_t> svarint32_to_bytes(std::int32_t value) {
+    std::ostringstream os;
+    stream_writer w(os);
+    w.write_i32(value);
+    std::string s = os.str();
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+  }
+
+  std::vector<std::uint8_t> uvarint16_to_bytes(std::uint16_t value) {
+    std::ostringstream os;
+    stream_writer w(os);
+    w.write_u16(value);
+    std::string s = os.str();
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+  }
+
+  std::vector<std::uint8_t> svarint16_to_bytes(std::int16_t value) {
+    std::ostringstream os;
+    stream_writer w(os);
+    w.write_i16(value);
+    std::string s = os.str();
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+  }
+
   // Returns serialized bytes for float64 (same encoding as stream_writer).
   std::vector<std::uint8_t> float64_to_bytes(double value) {
     std::ostringstream os;
     stream_writer w(os);
     w.write_f64(value);
+    std::string s = os.str();
+    return std::vector<std::uint8_t>(s.begin(), s.end());
+  }
+
+  // Returns serialized bytes for float32 (same encoding as stream_writer).
+  std::vector<std::uint8_t> float32_to_bytes(float value) {
+    std::ostringstream os;
+    stream_writer w(os);
+    w.write_f32(value);
     std::string s = os.str();
     return std::vector<std::uint8_t>(s.begin(), s.end());
   }
@@ -145,6 +186,81 @@ int main() {
     expect(double_rt(-std::numeric_limits<double>::infinity()) == -std::numeric_limits<double>::infinity());
     expect(double_rt(std::numeric_limits<double>::infinity()) == std::numeric_limits<double>::infinity());
     expect(std::isnan(double_rt(std::numeric_limits<double>::quiet_NaN())));
+  };
+
+  "stream serialize uint8 roundtrip"_test = [] {
+    auto u8_rt = [](std::uint8_t v) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_u8(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::uint8_t result;
+      r.read_u8(result);
+      return result;
+    };
+    expect(u8_rt(0) == 0_u);
+    expect(u8_rt(1) == 1_u);
+    expect(u8_rt(127) == 127_u);
+    expect(u8_rt(128) == 128_u);
+    expect(u8_rt(255) == 255_u);
+  };
+
+  "stream serialize int8 roundtrip"_test = [] {
+    auto i8_rt = [](std::int8_t v) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_i8(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::int8_t result;
+      r.read_i8(result);
+      return result;
+    };
+    expect(i8_rt(0) == 0_i);
+    expect(i8_rt(1) == 1_i);
+    expect(i8_rt(-1) == -1_i);
+    expect(i8_rt(127) == 127_i);
+    expect(i8_rt(-128) == -128_i);
+  };
+
+  "stream serialize float roundtrip"_test = [] {
+    auto float_rt = [](float v) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_f32(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      float result;
+      r.read_f32(result);
+      return result;
+    };
+    expect(float_rt(0.0f) == 0.0f);
+    expect(float_rt(1.5f) == 1.5f);
+    expect(float_rt(-1.5f) == -1.5f);
+    expect(float_rt(3.14159265f) == 3.14159265f);
+    expect(float_rt(-std::numeric_limits<float>::infinity()) == -std::numeric_limits<float>::infinity());
+    expect(float_rt(std::numeric_limits<float>::infinity()) == std::numeric_limits<float>::infinity());
+    expect(std::isnan(float_rt(std::numeric_limits<float>::quiet_NaN())));
+  };
+
+  "stream serialization preserves sort order float32"_test = [] {
+    std::vector<float> fvals = {
+      -std::numeric_limits<float>::infinity(),
+      -1e30f, -1e10f, -1000.0f, -1.5f, -1.0f, -0.5f, -1e-10f, -1e-30f,
+      -0.0f, 0.0f,
+      1e-30f, 1e-10f, 0.5f, 1.0f, 1.5f, 1000.0f, 1e10f, 1e30f,
+      std::numeric_limits<float>::infinity()
+    };
+    for (size_t i = 0; i < fvals.size(); ++i) {
+      for (size_t j = 0; j < fvals.size(); ++j) {
+        auto a = fvals[i], b = fvals[j];
+        auto ba = float32_to_bytes(a), bb = float32_to_bytes(b);
+        expect(three_way_cmp(a, b) == bytes_three_way_cmp(ba, bb));
+      }
+    }
+    float nan = std::numeric_limits<float>::quiet_NaN();
+    expect(float32_to_bytes(nan) == float32_to_bytes(nan));
   };
 
   "stream serialize bool roundtrip"_test = [] {
@@ -282,5 +398,158 @@ int main() {
     // NaN: two NaNs must serialize to the same bytes.
     double nan = std::numeric_limits<double>::quiet_NaN();
     expect(float64_to_bytes(nan) == float64_to_bytes(nan));
+  };
+
+  "stream uvarint32 roundtrip"_test = [] {
+    std::vector<std::uint32_t> vals = {0, 1, 127, 128, 0x3FFF, 0x4000, 0x1FFFFF, 0x200000,
+        0xFFFFFF, 0x10000000 - 1, 0x10000000, 0x7FFFFFFF, 0xFFFFFFFF};
+    for (std::uint32_t v : vals) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_u32(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::uint32_t out;
+      r.read_u32(out);
+      expect(out == v);
+    }
+  };
+
+  "stream svarint32 roundtrip"_test = [] {
+    const std::int32_t min32 = std::numeric_limits<std::int32_t>::min();
+    std::vector<std::int32_t> vals = {0, 1, -1, 63, -63, 64, -64, 127, -127, 128, -128,
+        0x1FFF, -0x2000, 0x7FFFFFFF, min32};
+    for (std::int32_t v : vals) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_i32(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::int32_t out;
+      r.read_i32(out);
+      expect(out == v);
+    }
+  };
+
+  "stream write uvarint32 read as uvarint64 compatible"_test = [] {
+    std::vector<std::uint32_t> vals = {0, 1, 127, 128, 0x3FFF, 0x4000, 0x1FFFFF, 0xFFFFFFFF};
+    for (std::uint32_t v : vals) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_u32(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::uint64_t out64;
+      r.read_u64(out64);
+      expect(out64 == static_cast<std::uint64_t>(v));
+    }
+  };
+
+  "stream write svarint32 read as svarint64 compatible"_test = [] {
+    std::vector<std::int32_t> vals = {0, 1, -1, 63, -63, 0x7FFFFFFF, std::numeric_limits<std::int32_t>::min()};
+    for (std::int32_t v : vals) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_i32(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::int64_t out64;
+      r.read_i64(out64);
+      expect(out64 == static_cast<std::int64_t>(v));
+    }
+  };
+
+  "stream uvarint32 and uvarint64 same bytes for 32bit range"_test = [] {
+    std::vector<std::uint32_t> vals = {0, 1, 127, 128, 0x3FFF, 0x4000, 0xFFFFFFFF};
+    for (std::uint32_t v : vals) {
+      auto bytes32 = uvarint32_to_bytes(v);
+      auto bytes64 = uvarint_to_bytes(static_cast<std::uint64_t>(v));
+      expect(bytes32 == bytes64);
+    }
+  };
+
+  "stream svarint32 and svarint64 same bytes for 32bit range"_test = [] {
+    std::vector<std::int32_t> vals = {0, 1, -1, 63, -63, 0x7FFFFFFF, std::numeric_limits<std::int32_t>::min()};
+    for (std::int32_t v : vals) {
+      auto bytes32 = svarint32_to_bytes(v);
+      auto bytes64 = svarint_to_bytes(static_cast<std::int64_t>(v));
+      expect(bytes32 == bytes64);
+    }
+  };
+
+  "stream uvarint16 roundtrip"_test = [] {
+    std::vector<std::uint16_t> vals = {0, 1, 127, 128, 0x3FFF, 0x4000, 0x7FFF, 0xFFFF};
+    for (std::uint16_t v : vals) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_u16(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::uint16_t out;
+      r.read_u16(out);
+      expect(out == v);
+    }
+  };
+
+  "stream svarint16 roundtrip"_test = [] {
+    const std::int16_t min16 = std::numeric_limits<std::int16_t>::min();
+    std::vector<std::int16_t> vals = {0, 1, -1, 63, -63, 64, -64, 127, -127, 128, -128,
+        0x1FFF, -0x2000, 0x7FFF, min16};
+    for (std::int16_t v : vals) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_i16(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::int16_t out;
+      r.read_i16(out);
+      expect(out == v);
+    }
+  };
+
+  "stream write uvarint16 read as uvarint64 compatible"_test = [] {
+    std::vector<std::uint16_t> vals = {0, 1, 127, 128, 0x3FFF, 0x4000, 0xFFFF};
+    for (std::uint16_t v : vals) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_u16(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::uint64_t out64;
+      r.read_u64(out64);
+      expect(out64 == static_cast<std::uint64_t>(v));
+    }
+  };
+
+  "stream write svarint16 read as svarint64 compatible"_test = [] {
+    std::vector<std::int16_t> vals = {0, 1, -1, 63, -63, 0x7FFF, std::numeric_limits<std::int16_t>::min()};
+    for (std::int16_t v : vals) {
+      std::ostringstream os;
+      stream_writer w(os);
+      w.write_i16(v);
+      std::istringstream is(os.str());
+      stream_reader r(is);
+      std::int64_t out64;
+      r.read_i64(out64);
+      expect(out64 == static_cast<std::int64_t>(v));
+    }
+  };
+
+  "stream uvarint16 and uvarint64 same bytes for 16bit range"_test = [] {
+    std::vector<std::uint16_t> vals = {0, 1, 127, 128, 0x3FFF, 0x4000, 0xFFFF};
+    for (std::uint16_t v : vals) {
+      auto bytes16 = uvarint16_to_bytes(v);
+      auto bytes64 = uvarint_to_bytes(static_cast<std::uint64_t>(v));
+      expect(bytes16 == bytes64);
+    }
+  };
+
+  "stream svarint16 and svarint64 same bytes for 16bit range"_test = [] {
+    std::vector<std::int16_t> vals = {0, 1, -1, 63, -63, 0x7FFF, std::numeric_limits<std::int16_t>::min()};
+    for (std::int16_t v : vals) {
+      auto bytes16 = svarint16_to_bytes(v);
+      auto bytes64 = svarint_to_bytes(static_cast<std::int64_t>(v));
+      expect(bytes16 == bytes64);
+    }
   };
 }

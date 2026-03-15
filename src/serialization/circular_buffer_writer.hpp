@@ -41,6 +41,30 @@ namespace serialization {
         write_svar_int(value);
       }
 
+      void write_u32(std::uint32_t value) {
+        write_uvar_int_32(value);
+      }
+
+      void write_i32(std::int32_t value) {
+        write_svar_int_32(value);
+      }
+
+      void write_u16(std::uint16_t value) {
+        write_uvar_int_16(value);
+      }
+
+      void write_i16(std::int16_t value) {
+        write_svar_int_16(value);
+      }
+
+      void write_u8(std::uint8_t value) {
+        write_bytes(&value, 1);
+      }
+      void write_i8(std::int8_t value) {
+        value ^= 0x80; // to be sortable
+        write_bytes(&value, 1);
+      }
+
       void write_f64(double value) {
         std::uint64_t v = *(std::uint64_t*)(&value);
         if(v & 0x8000000000000000) {
@@ -53,6 +77,22 @@ namespace serialization {
   #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
           // We're on a little-endian system, so reverse the byte order before writing
           v = __builtin_bswap64(v);
+  #endif
+        write_bytes(&v, sizeof(v));
+      }
+
+      void write_f32(float value) {
+        std::uint32_t v = *(std::uint32_t*)(&value);
+        if(v & 0x80000000) {
+          v = ~v;
+        } else {
+          v ^= 0x80000000;          
+        }
+        if(value == 0) v = 0x80000000;
+        // INSERT_YOUR_CODE
+  #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+          // We're on a little-endian system, so reverse the byte order before writing
+          v = __builtin_bswap32(v);
   #endif
         write_bytes(&v, sizeof(v));
       }
@@ -208,7 +248,7 @@ namespace serialization {
 
       void write_uvar_int(std::uint64_t value) {
         ensure_writable(9);
-        size_t written = circular_buffer_poke_uvarint(buffer_, write_offset_, value);
+        size_t written = circular_buffer_poke_uvarint64(buffer_, write_offset_, value);
         if(written == 0) {
           throw std::runtime_error("Failed to write uvarint");
         }
@@ -217,10 +257,38 @@ namespace serialization {
 
       void write_svar_int(std::int64_t value) {
         ensure_writable(9);
-        size_t written = circular_buffer_poke_svarint(buffer_, write_offset_, value);
+        size_t written = circular_buffer_poke_svarint64(buffer_, write_offset_, value);
         if(written == 0) {
           throw std::runtime_error("Failed to write svarint");
         }
+        write_offset_ += written;
+      }
+
+      void write_uvar_int_32(std::uint32_t value) {
+        ensure_writable(5);
+        size_t written = circular_buffer_poke_uvarint32(buffer_, write_offset_, value);
+        if(written == 0) throw std::runtime_error("Failed to write uvarint32");
+        write_offset_ += written;
+      }
+
+      void write_svar_int_32(std::int32_t value) {
+        ensure_writable(5);
+        size_t written = circular_buffer_poke_svarint32(buffer_, write_offset_, value);
+        if(written == 0) throw std::runtime_error("Failed to write svarint32");
+        write_offset_ += written;
+      }
+
+      void write_uvar_int_16(std::uint16_t value) {
+        ensure_writable(3);
+        size_t written = circular_buffer_poke_uvarint16(buffer_, write_offset_, value);
+        if(written == 0) throw std::runtime_error("Failed to write uvarint16");
+        write_offset_ += written;
+      }
+
+      void write_svar_int_16(std::int16_t value) {
+        ensure_writable(3);
+        size_t written = circular_buffer_poke_svarint16(buffer_, write_offset_, value);
+        if(written == 0) throw std::runtime_error("Failed to write svarint16");
         write_offset_ += written;
       }
   };

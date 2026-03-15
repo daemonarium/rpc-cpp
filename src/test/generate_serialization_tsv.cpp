@@ -50,6 +50,62 @@ static void emit_f64(std::ostream& out, double value, const std::string& value_l
   out << "f64\t" << value_label << "\t" << bytes_to_hex(raw) << "\n";
 }
 
+static void emit_u32(std::ostream& out, std::uint32_t value) {
+  std::ostringstream buf;
+  stream_writer w(buf);
+  w.write_u32(value);
+  std::string raw = buf.str();
+  out << "u32\t" << value << "\t" << bytes_to_hex(raw) << "\n";
+}
+
+static void emit_i32(std::ostream& out, std::int32_t value) {
+  std::ostringstream buf;
+  stream_writer w(buf);
+  w.write_i32(value);
+  std::string raw = buf.str();
+  out << "i32\t" << value << "\t" << bytes_to_hex(raw) << "\n";
+}
+
+static void emit_u16(std::ostream& out, std::uint16_t value) {
+  std::ostringstream buf;
+  stream_writer w(buf);
+  w.write_u16(value);
+  std::string raw = buf.str();
+  out << "u16\t" << value << "\t" << bytes_to_hex(raw) << "\n";
+}
+
+static void emit_i16(std::ostream& out, std::int16_t value) {
+  std::ostringstream buf;
+  stream_writer w(buf);
+  w.write_i16(value);
+  std::string raw = buf.str();
+  out << "i16\t" << value << "\t" << bytes_to_hex(raw) << "\n";
+}
+
+static void emit_f32(std::ostream& out, float value, const std::string& value_label) {
+  std::ostringstream buf;
+  stream_writer w(buf);
+  w.write_f32(value);
+  std::string raw = buf.str();
+  out << "f32\t" << value_label << "\t" << bytes_to_hex(raw) << "\n";
+}
+
+static void emit_u8(std::ostream& out, std::uint8_t value) {
+  std::ostringstream buf;
+  stream_writer w(buf);
+  w.write_u8(value);
+  std::string raw = buf.str();
+  out << "u8\t" << static_cast<unsigned>(value) << "\t" << bytes_to_hex(raw) << "\n";
+}
+
+static void emit_i8(std::ostream& out, std::int8_t value) {
+  std::ostringstream buf;
+  stream_writer w(buf);
+  w.write_i8(value);
+  std::string raw = buf.str();
+  out << "i8\t" << static_cast<int>(value) << "\t" << bytes_to_hex(raw) << "\n";
+}
+
 int main(int argc, char* argv[]) {
   std::ostream* out = &std::cout;
   std::ofstream file;
@@ -98,6 +154,67 @@ int main(int argc, char* argv[]) {
   emit_f64(*out, -std::numeric_limits<double>::infinity(), "-inf");
   emit_f64(*out, std::numeric_limits<double>::infinity(), "inf");
   emit_f64(*out, std::numeric_limits<double>::quiet_NaN(), "nan");
+
+  // u32 / uvarint32
+  emit_u32(*out, 0);
+  emit_u32(*out, 1);
+  emit_u32(*out, 42);
+  emit_u32(*out, 127);
+  emit_u32(*out, 128);
+  emit_u32(*out, 0x3FFF);
+  emit_u32(*out, 0x4000);
+  emit_u32(*out, 0xFFFFFFFF);
+
+  // i32 / svarint32
+  emit_i32(*out, 0);
+  emit_i32(*out, 1);
+  emit_i32(*out, -1);
+  emit_i32(*out, 63);
+  emit_i32(*out, -64);
+  emit_i32(*out, 1000000);
+  emit_i32(*out, -1000000);
+  emit_i32(*out, 0x7FFFFFFF);
+  emit_i32(*out, static_cast<std::int32_t>(0x80000000));
+
+  // u16 / uvarint16
+  emit_u16(*out, 0);
+  emit_u16(*out, 1);
+  emit_u16(*out, 127);
+  emit_u16(*out, 128);
+  emit_u16(*out, 0x3FFF);
+  emit_u16(*out, 0xFFFF);
+
+  // i16 / svarint16
+  emit_i16(*out, 0);
+  emit_i16(*out, 1);
+  emit_i16(*out, -1);
+  emit_i16(*out, 63);
+  emit_i16(*out, -64);
+  emit_i16(*out, 32767);
+  emit_i16(*out, -32768);
+
+  // f32
+  emit_f32(*out, 0.f, "0");
+  emit_f32(*out, 1.5f, "1.5");
+  emit_f32(*out, -1.5f, "-1.5");
+  emit_f32(*out, 3.14159265f, "3.14159265");
+  emit_f32(*out, -std::numeric_limits<float>::infinity(), "-inf");
+  emit_f32(*out, std::numeric_limits<float>::infinity(), "inf");
+  emit_f32(*out, std::numeric_limits<float>::quiet_NaN(), "nan");
+
+  // u8
+  emit_u8(*out, 0);
+  emit_u8(*out, 1);
+  emit_u8(*out, 127);
+  emit_u8(*out, 128);
+  emit_u8(*out, 255);
+
+  // i8
+  emit_i8(*out, 0);
+  emit_i8(*out, 1);
+  emit_i8(*out, -1);
+  emit_i8(*out, 127);
+  emit_i8(*out, -128);
 
   return 0;
 }

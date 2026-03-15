@@ -36,11 +36,36 @@ namespace serialization {
 
       void write_u64(std::uint64_t value) {
         debug("write_u64 %d", value);
-        write_uvar_int(value); 
+        write_uvar_int(value);
       }
       void write_i64(std::int64_t value) {
         debug("write_i64 %d", value);
         write_svar_int(value);
+      }
+      void write_u32(std::uint32_t value) {
+        debug("write_u32 %u", value);
+        write_uvar_int_32(value);
+      }
+      void write_i32(std::int32_t value) {
+        debug("write_i32 %d", value);
+        write_svar_int_32(value);
+      }
+      void write_u16(std::uint16_t value) {
+        debug("write_u16 %u", value);
+        write_uvar_int_16(value);
+      }
+      void write_i16(std::int16_t value) {
+        debug("write_i16 %d", value);
+        write_svar_int_16(value);
+      }
+      void write_u8(std::uint8_t value) {
+        debug("write_u8 %u", value);
+        stream_.write((char*)&value, 1);
+      }
+      void write_i8(std::int8_t value) {
+        debug("write_i8 %d", value);
+        std::int8_t v = value ^ 0x80;
+        stream_.write((char*)&v, 1);
       }
       void write_f64(double value) {
         debug("write_f64 %f", value);
@@ -53,6 +78,20 @@ namespace serialization {
         if(value == 0) v = 0x8000000000000000;
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
         v = __builtin_bswap64(v);
+#endif
+        stream_.write((char*)&v, sizeof(v));
+      }
+      void write_f32(float value) {
+        debug("write_f32 %f", value);
+        std::uint32_t v = *(std::uint32_t*)(&value);
+        if(v & 0x80000000) {
+          v = ~v;
+        } else {
+          v ^= 0x80000000;
+        }
+        if(value == 0) v = 0x80000000;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        v = __builtin_bswap32(v);
 #endif
         stream_.write((char*)&v, sizeof(v));
       }
@@ -381,6 +420,105 @@ namespace serialization {
                 (uint8_t)((unsigned_value >> 8) & 0xFF),
                 (uint8_t)(unsigned_value & 0xFF)};
             stream_.write((char*)number, 9);
+          }
+        }
+      }
+
+      void write_uvar_int_32(std::uint32_t value) {
+        if (value < 0x80) {
+          uint8_t number = static_cast<uint8_t>(value);
+          stream_.write((char*)&number, 1);
+        } else if (value < 0x4000) {
+          uint8_t number[2] = {static_cast<uint8_t>(0x80 | (value >> 8)), static_cast<uint8_t>(value & 0xFF)};
+          stream_.write((char*)number, 2);
+        } else if (value < 0x200000) {
+          uint8_t number[3] = {static_cast<uint8_t>(0xC0 | (value >> 16)), static_cast<uint8_t>((value >> 8) & 0xFF), static_cast<uint8_t>(value & 0xFF)};
+          stream_.write((char*)number, 3);
+        } else if (value < 0x10000000) {
+          uint8_t number[4] = {static_cast<uint8_t>(0xE0 | (value >> 24)), static_cast<uint8_t>((value >> 16) & 0xFF), static_cast<uint8_t>((value >> 8) & 0xFF), static_cast<uint8_t>(value & 0xFF)};
+          stream_.write((char*)number, 4);
+        } else {
+          uint8_t number[5] = {0xF0, static_cast<uint8_t>((value >> 24) & 0xFF), static_cast<uint8_t>((value >> 16) & 0xFF), static_cast<uint8_t>((value >> 8) & 0xFF), static_cast<uint8_t>(value & 0xFF)};
+          stream_.write((char*)number, 5);
+        }
+      }
+
+      void write_svar_int_32(std::int32_t value) {
+        std::uint32_t u = (value < 0) ? static_cast<std::uint32_t>(-static_cast<std::uint32_t>(value)) : static_cast<std::uint32_t>(value);
+        if (value < 0) {
+          if (u <= 0x3F) {
+            uint8_t number = static_cast<uint8_t>(0x40 | ((~u) & 0x3F));
+            stream_.write((char*)&number, 1);
+          } else if (u <= 0x1FFF) {
+            uint8_t number[2] = {static_cast<uint8_t>(0x20 | (((~u) >> 8) & 0x1F)), static_cast<uint8_t>((~u) & 0xFF)};
+            stream_.write((char*)number, 2);
+          } else if (u <= 0xFFFFF) {
+            uint8_t number[3] = {static_cast<uint8_t>(0x10 | (((~u) >> 16) & 0x0F)), static_cast<uint8_t>(((~u) >> 8) & 0xFF), static_cast<uint8_t>((~u) & 0xFF)};
+            stream_.write((char*)number, 3);
+          } else if (u <= 0x7FFFFFF) {
+            uint8_t number[4] = {static_cast<uint8_t>(0x08 | (((~u) >> 24) & 0x07)), static_cast<uint8_t>(((~u) >> 16) & 0xFF), static_cast<uint8_t>(((~u) >> 8) & 0xFF), static_cast<uint8_t>((~u) & 0xFF)};
+            stream_.write((char*)number, 4);
+          } else {
+            uint8_t number[5] = {0x07, static_cast<uint8_t>(((~u) >> 24) & 0xFF), static_cast<uint8_t>(((~u) >> 16) & 0xFF), static_cast<uint8_t>(((~u) >> 8) & 0xFF), static_cast<uint8_t>((~u) & 0xFF)};
+            stream_.write((char*)number, 5);
+          }
+        } else {
+          if (u <= 0x3F) {
+            uint8_t number = static_cast<uint8_t>(0x80 | u);
+            stream_.write((char*)&number, 1);
+          } else if (u <= 0x1FFF) {
+            uint8_t number[2] = {static_cast<uint8_t>(0xC0 | (u >> 8)), static_cast<uint8_t>(u & 0xFF)};
+            stream_.write((char*)number, 2);
+          } else if (u <= 0xFFFFF) {
+            uint8_t number[3] = {static_cast<uint8_t>(0xE0 | (u >> 16)), static_cast<uint8_t>((u >> 8) & 0xFF), static_cast<uint8_t>(u & 0xFF)};
+            stream_.write((char*)number, 3);
+          } else if (u <= 0x7FFFFFF) {
+            uint8_t number[4] = {static_cast<uint8_t>(0xF0 | (u >> 24)), static_cast<uint8_t>((u >> 16) & 0xFF), static_cast<uint8_t>((u >> 8) & 0xFF), static_cast<uint8_t>(u & 0xFF)};
+            stream_.write((char*)number, 4);
+          } else {
+            uint8_t number[5] = {0xF8, static_cast<uint8_t>((u >> 24) & 0xFF), static_cast<uint8_t>((u >> 16) & 0xFF), static_cast<uint8_t>((u >> 8) & 0xFF), static_cast<uint8_t>(u & 0xFF)};
+            stream_.write((char*)number, 5);
+          }
+        }
+      }
+
+      void write_uvar_int_16(std::uint16_t value) {
+        if (value < 0x80) {
+          uint8_t number = static_cast<uint8_t>(value);
+          stream_.write((char*)&number, 1);
+        } else if (value < 0x4000) {
+          uint8_t number[2] = {static_cast<uint8_t>(0x80 | (value >> 8)), static_cast<uint8_t>(value & 0xFF)};
+          stream_.write((char*)number, 2);
+        } else {
+          uint8_t number[3] = {0xC0, static_cast<uint8_t>((value >> 8) & 0xFF), static_cast<uint8_t>(value & 0xFF)};
+          stream_.write((char*)number, 3);
+        }
+      }
+
+      void write_svar_int_16(std::int16_t value) {
+        std::uint16_t u = (value < 0) ? static_cast<std::uint16_t>(-static_cast<std::uint16_t>(value)) : static_cast<std::uint16_t>(value);
+        if (value < 0) {
+          if (u <= 0x3F) {
+            uint8_t number = static_cast<uint8_t>(0x40 | ((~u) & 0x3F));
+            stream_.write((char*)&number, 1);
+          } else if (u <= 0x1FFF) {
+            uint8_t number[2] = {static_cast<uint8_t>(0x20 | (((~u) >> 8) & 0x1F)), static_cast<uint8_t>((~u) & 0xFF)};
+            stream_.write((char*)number, 2);
+          } else {
+            std::uint32_t encoded = static_cast<std::uint32_t>(0xF0000) + static_cast<std::uint32_t>(0xFFFF - u);
+            uint8_t number[3] = {static_cast<uint8_t>(0x10 | (encoded >> 16)), static_cast<uint8_t>((encoded >> 8) & 0xFF), static_cast<uint8_t>(encoded & 0xFF)};
+            stream_.write((char*)number, 3);
+          }
+        } else {
+          if (u <= 0x3F) {
+            uint8_t number = static_cast<uint8_t>(0x80 | u);
+            stream_.write((char*)&number, 1);
+          } else if (u <= 0x1FFF) {
+            uint8_t number[2] = {static_cast<uint8_t>(0xC0 | (u >> 8)), static_cast<uint8_t>(u & 0xFF)};
+            stream_.write((char*)number, 2);
+          } else {
+            uint8_t number[3] = {0xE0, static_cast<uint8_t>((u >> 8) & 0xFF), static_cast<uint8_t>(u & 0xFF)};
+            stream_.write((char*)number, 3);
           }
         }
       }

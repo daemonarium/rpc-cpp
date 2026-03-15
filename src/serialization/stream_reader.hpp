@@ -33,7 +33,7 @@ namespace serialization {
       }
       void enter_indexed_frame(size_t id) { throw std::runtime_error("Not indexed"); }
 
-      void read_u64(std::uint64_t& value) {        
+      void read_u64(std::uint64_t& value) {
         debug("read_u64");
         value = read_uvar_int();
         debug("  read_u64 result %d", value);
@@ -42,6 +42,37 @@ namespace serialization {
         debug("read_i64");
         value = read_svar_int();
         debug("  read_i64 result %d", value);
+      }
+      void read_u32(std::uint32_t& value) {
+        debug("read_u32");
+        value = read_uvar_int_32();
+        debug("  read_u32 result %u", value);
+      }
+      void read_i32(std::int32_t& value) {
+        debug("read_i32");
+        value = read_svar_int_32();
+        debug("  read_i32 result %d", value);
+      }
+      void read_u16(std::uint16_t& value) {
+        debug("read_u16");
+        value = read_uvar_int_16();
+        debug("  read_u16 result %u", value);
+      }
+      void read_i16(std::int16_t& value) {
+        debug("read_i16");
+        value = read_svar_int_16();
+        debug("  read_i16 result %d", value);
+      }
+      void read_u8(std::uint8_t& value) {
+        debug("read_u8");
+        value = static_cast<std::uint8_t>(stream_.get());
+        debug("  read_u8 result %u", value);
+      }
+      void read_i8(std::int8_t& value) {
+        debug("read_i8");
+        std::uint8_t byte = static_cast<std::uint8_t>(stream_.get());
+        value = static_cast<std::int8_t>(byte ^ 0x80);
+        debug("  read_i8 result %d", value);
       }
       void read_f64(double& value) {
         debug("read_f64");
@@ -57,6 +88,21 @@ namespace serialization {
         }
         value = *(double*)(&v);
         debug("  read_f64 result %f", value);
+      }
+      void read_f32(float& value) {
+        debug("read_f32");
+        std::uint32_t v;
+        stream_.read((char*)&v, sizeof(v));
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        v = __builtin_bswap32(v);
+#endif
+        if(v & 0x80000000) {
+          v ^= 0x80000000;
+        } else {
+          v = ~v;
+        }
+        value = *(float*)(&v);
+        debug("  read_f32 result %f", value);
       }
       void read_bool(bool& value) {
         debug("read_bool");
@@ -414,6 +460,135 @@ namespace serialization {
                            | ((uint64_t)number[7] << 8)
                            | number[8];
           return static_cast<std::int64_t>(encoded);
+        }
+      }
+
+      std::uint32_t read_uvar_int_32() {
+        uint8_t number[5];
+        number[0] = stream_.get();
+        if ((number[0] & 0x80) == 0) return number[0];
+        if ((number[0] & 0x40) == 0) {
+          number[1] = stream_.get();
+          return (static_cast<std::uint32_t>(number[0] & 0x3F) << 8) | number[1];
+        }
+        if ((number[0] & 0x20) == 0) {
+          stream_.read((char*)number + 1, 2);
+          return (static_cast<std::uint32_t>(number[0] & 0x1F) << 16) | (static_cast<std::uint32_t>(number[1]) << 8) | number[2];
+        }
+        if ((number[0] & 0x10) == 0) {
+          stream_.read((char*)number + 1, 3);
+          return (static_cast<std::uint32_t>(number[0] & 0x0F) << 24) | (static_cast<std::uint32_t>(number[1]) << 16) | (static_cast<std::uint32_t>(number[2]) << 8) | number[3];
+        }
+        if ((number[0] & 0x08) == 0) {
+          stream_.read((char*)number + 1, 4);
+          if ((number[0] & 0x07) != 0) throw std::runtime_error("uvarint32 overflow");
+          return (static_cast<std::uint32_t>(number[1]) << 24) | (static_cast<std::uint32_t>(number[2]) << 16) | (static_cast<std::uint32_t>(number[3]) << 8) | number[4];
+        }
+        throw std::runtime_error("uvarint32 invalid");
+      }
+
+      std::int32_t read_svar_int_32() {
+        uint8_t number[5];
+        number[0] = stream_.get();
+        bool negative = (number[0] & 0x80) == 0;
+        if (negative) {
+          if ((number[0] & 0x40) != 0) return -static_cast<std::int32_t>((~(static_cast<std::uint32_t>(number[0]))) & 0x3F);
+          if ((number[0] & 0xE0) == 0x20) {
+            number[1] = stream_.get();
+            std::uint32_t encoded = (static_cast<std::uint32_t>(number[0] & 0x1F) << 8) | number[1];
+            return -static_cast<std::int32_t>(0x1FFF - encoded);
+          }
+          if ((number[0] & 0xF0) == 0x10) {
+            stream_.read((char*)number + 1, 2);
+            std::uint32_t encoded = (static_cast<std::uint32_t>(number[0] & 0x0F) << 16) | (static_cast<std::uint32_t>(number[1]) << 8) | number[2];
+            return -static_cast<std::int32_t>(0xFFFFF - encoded);
+          }
+          if ((number[0] & 0xF8) == 0x08) {
+            stream_.read((char*)number + 1, 3);
+            std::uint32_t encoded = (static_cast<std::uint32_t>(number[0] & 0x07) << 24) | (static_cast<std::uint32_t>(number[1]) << 16) | (static_cast<std::uint32_t>(number[2]) << 8) | number[3];
+            return -static_cast<std::int32_t>(0x7FFFFFF - encoded);
+          }
+          if ((number[0] & 0xFC) == 0x04) {
+            stream_.read((char*)number + 1, 4);
+            std::uint32_t encoded = (static_cast<std::uint32_t>(number[1]) << 24) | (static_cast<std::uint32_t>(number[2]) << 16) | (static_cast<std::uint32_t>(number[3]) << 8) | number[4];
+            return -static_cast<std::int32_t>(0xFFFFFFFF - encoded);
+          }
+          throw std::runtime_error("svarint32 invalid");
+        } else {
+          if ((number[0] & 0x40) == 0) return static_cast<std::int32_t>(number[0] & 0x3F);
+          if ((number[0] & 0x20) == 0) {
+            number[1] = stream_.get();
+            return static_cast<std::int32_t>((static_cast<std::uint32_t>(number[0] & 0x1F) << 8) | number[1]);
+          }
+          if ((number[0] & 0x10) == 0) {
+            stream_.read((char*)number + 1, 2);
+            return static_cast<std::int32_t>((static_cast<std::uint32_t>(number[0] & 0x0F) << 16) | (static_cast<std::uint32_t>(number[1]) << 8) | number[2]);
+          }
+          if ((number[0] & 0x08) == 0) {
+            stream_.read((char*)number + 1, 3);
+            std::uint32_t encoded = (static_cast<std::uint32_t>(number[0] & 0x07) << 24) | (static_cast<std::uint32_t>(number[1]) << 16) | (static_cast<std::uint32_t>(number[2]) << 8) | number[3];
+            if (encoded > 0x7FFFFFFF) throw std::runtime_error("svarint32 overflow");
+            return static_cast<std::int32_t>(encoded);
+          }
+          if ((number[0] & 0x04) == 0) {
+            stream_.read((char*)number + 1, 4);
+            if ((number[0] & 0x03) != 0) throw std::runtime_error("svarint32 overflow");
+            std::uint32_t encoded = (static_cast<std::uint32_t>(number[1]) << 24) | (static_cast<std::uint32_t>(number[2]) << 16) | (static_cast<std::uint32_t>(number[3]) << 8) | number[4];
+            if (encoded > 0x7FFFFFFF) throw std::runtime_error("svarint32 overflow");
+            return static_cast<std::int32_t>(encoded);
+          }
+          throw std::runtime_error("svarint32 invalid");
+        }
+      }
+
+      std::uint16_t read_uvar_int_16() {
+        uint8_t number[3];
+        number[0] = stream_.get();
+        if ((number[0] & 0x80) == 0) return number[0];
+        if ((number[0] & 0x40) == 0) {
+          number[1] = stream_.get();
+          return static_cast<std::uint16_t>((static_cast<std::uint16_t>(number[0] & 0x3F) << 8) | number[1]);
+        }
+        if ((number[0] & 0x20) == 0) {
+          stream_.read((char*)number + 1, 2);
+          if ((number[0] & 0x1F) != 0) throw std::runtime_error("uvarint16 overflow");
+          return static_cast<std::uint16_t>((static_cast<std::uint16_t>(number[1]) << 8) | number[2]);
+        }
+        throw std::runtime_error("uvarint16 invalid");
+      }
+
+      std::int16_t read_svar_int_16() {
+        uint8_t number[3];
+        number[0] = stream_.get();
+        if ((number[0] & 0x80) == 0) {
+          if ((number[0] & 0x40) != 0) return -static_cast<std::int16_t>(static_cast<std::uint16_t>((~(static_cast<std::uint16_t>(number[0]))) & 0x3F));
+          if ((number[0] & 0xE0) == 0x20) {
+            number[1] = stream_.get();
+            std::uint16_t encoded = static_cast<std::uint16_t>((static_cast<std::uint16_t>(number[0] & 0x1F) << 8) | number[1]);
+            return -static_cast<std::int16_t>(static_cast<std::uint16_t>(0x1FFF - encoded));
+          }
+          if ((number[0] & 0xF0) == 0x10) {
+            stream_.read((char*)number + 1, 2);
+            std::uint32_t encoded = (static_cast<std::uint32_t>(number[0] & 0x0F) << 16) | (static_cast<std::uint32_t>(number[1]) << 8) | number[2];
+            std::uint32_t mag = 0xFFFFF - encoded;
+            if (mag > 0x8000) throw std::runtime_error("svarint16 overflow");
+            return -static_cast<std::int16_t>(static_cast<std::uint16_t>(mag));
+          }
+          throw std::runtime_error("svarint16 invalid");
+        } else {
+          if ((number[0] & 0x40) == 0) return static_cast<std::int16_t>(static_cast<std::uint16_t>(number[0] & 0x3F));
+          if ((number[0] & 0x20) == 0) {
+            number[1] = stream_.get();
+            return static_cast<std::int16_t>(static_cast<std::uint16_t>((static_cast<std::uint16_t>(number[0] & 0x1F) << 8) | number[1]));
+          }
+          if ((number[0] & 0x10) == 0) {
+            stream_.read((char*)number + 1, 2);
+            if ((number[0] & 0x0F) != 0) throw std::runtime_error("svarint16 overflow");
+            std::uint16_t encoded = static_cast<std::uint16_t>((static_cast<std::uint16_t>(number[1]) << 8) | number[2]);
+            if (encoded > 0x7FFF) throw std::runtime_error("svarint16 overflow");
+            return static_cast<std::int16_t>(encoded);
+          }
+          throw std::runtime_error("svarint16 invalid");
         }
       }
     };

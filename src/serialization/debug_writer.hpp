@@ -37,8 +37,29 @@ namespace serialization {
       void write_i64(std::int64_t value) {
         stream_ << std::string(indent_, ' ') << "writeI64 " << value << std::endl;
       }
+      void write_u32(std::uint32_t value) {
+        stream_ << std::string(indent_, ' ') << "writeU32 " << value << std::endl;
+      }
+      void write_i32(std::int32_t value) {
+        stream_ << std::string(indent_, ' ') << "writeI32 " << value << std::endl;
+      }
+      void write_u16(std::uint16_t value) {
+        stream_ << std::string(indent_, ' ') << "writeU16 " << value << std::endl;
+      }
+      void write_i16(std::int16_t value) {
+        stream_ << std::string(indent_, ' ') << "writeI16 " << value << std::endl;
+      }
+      void write_u8(std::uint8_t value) {
+        stream_ << std::string(indent_, ' ') << "writeU8 " << static_cast<unsigned>(value) << std::endl;
+      }
+      void write_i8(std::int8_t value) {
+        stream_ << std::string(indent_, ' ') << "writeI8 " << static_cast<int>(value) << std::endl;
+      }
       void write_f64(double value) {
         stream_ << std::string(indent_, ' ') << "writeF64 " << value << std::endl;
+      }
+      void write_f32(float value) {
+        stream_ << std::string(indent_, ' ') << "writeF32 " << value << std::endl;
       }
       void write_string(std::string_view value) {
         stream_ << std::string(indent_, ' ') << "writeString " << value << std::endl;

@@ -183,78 +183,226 @@ size_t circular_buffer_peek(struct circular_buffer *buffer, size_t offset, void 
 size_t circular_buffer_poke(struct circular_buffer *buffer, size_t offset, const void *source,  size_t bytes);
 
 /**
- * Reads unsigned variable length integer from the buffer.
+ * Reads unsigned 64-bit variable length integer from the buffer.
  *
  * @param buffer The buffer to read from.
  * @param value The destination of the integer.
  * @return The number of bytes read, or 0 if read failed.
  */
-size_t circular_buffer_read_uvarint(struct circular_buffer *buffer, uint64_t *value);
+size_t circular_buffer_read_uvarint64(struct circular_buffer *buffer, uint64_t *value);
 
 /**
- * Writes unsigned variable length integer to the buffer.
+ * Writes unsigned 64-bit variable length integer to the buffer.
  *
  * @param buffer The buffer to write to.
  * @param value The source of the integer.
  * @return The number of bytes written, or 0 if write failed.
  */
-size_t circular_buffer_write_uvarint(struct circular_buffer *buffer, uint64_t value);
+size_t circular_buffer_write_uvarint64(struct circular_buffer *buffer, uint64_t value);
 
 /**
- * Reads signed variable length integer from the buffer.
+ * Reads signed 64-bit variable length integer from the buffer.
  *
  * @param buffer The buffer to read from.
  * @param value The destination of the integer.
  * @return The number of bytes read, or 0 if read failed.
  */
-size_t circular_buffer_read_svarint(struct circular_buffer *buffer, int64_t *value);
+size_t circular_buffer_read_svarint64(struct circular_buffer *buffer, int64_t *value);
 
 /**
- * Writes signed variable length integer to the buffer.
+ * Writes signed 64-bit variable length integer to the buffer.
  *
  * @param buffer The buffer to write to.
  * @param value The source of the integer.
  * @return The number of bytes written, or 0 if write failed.
  */
-size_t circular_buffer_write_svarint(struct circular_buffer *buffer, int64_t value);
+size_t circular_buffer_write_svarint64(struct circular_buffer *buffer, int64_t value);
 
 /**
- * Reads unsigned variable length integer from the buffer without removing it.
+ * Reads unsigned 32-bit variable length integer from the buffer.
+ *
+ * @param buffer The buffer to read from.
+ * @param value The destination of the integer.
+ * @return The number of bytes read, or 0 if read failed.
+ */
+size_t circular_buffer_read_uvarint32(struct circular_buffer *buffer, uint32_t *value);
+
+/**
+ * Writes unsigned 32-bit variable length integer to the buffer.
+ *
+ * @param buffer The buffer to write to.
+ * @param value The source of the integer.
+ * @return The number of bytes written, or 0 if write failed.
+ */
+size_t circular_buffer_write_uvarint32(struct circular_buffer *buffer, uint32_t value);
+
+/**
+ * Reads signed 32-bit variable length integer from the buffer.
+ *
+ * @param buffer The buffer to read from.
+ * @param value The destination of the integer.
+ * @return The number of bytes read, or 0 if read failed.
+ */
+size_t circular_buffer_read_svarint32(struct circular_buffer *buffer, int32_t *value);
+
+/**
+ * Writes signed 32-bit variable length integer to the buffer.
+ *
+ * @param buffer The buffer to write to.
+ * @param value The source of the integer.
+ * @return The number of bytes written, or 0 if write failed.
+ */
+size_t circular_buffer_write_svarint32(struct circular_buffer *buffer, int32_t value);
+
+/**
+ * Reads unsigned 16-bit variable length integer from the buffer.
+ *
+ * @param buffer The buffer to read from.
+ * @param value The destination of the integer.
+ * @return The number of bytes read, or 0 if read failed.
+ */
+size_t circular_buffer_read_uvarint16(struct circular_buffer *buffer, uint16_t *value);
+
+/**
+ * Writes unsigned 16-bit variable length integer to the buffer.
+ *
+ * @param buffer The buffer to write to.
+ * @param value The source of the integer.
+ * @return The number of bytes written, or 0 if write failed.
+ */
+size_t circular_buffer_write_uvarint16(struct circular_buffer *buffer, uint16_t value);
+
+/**
+ * Reads signed 16-bit variable length integer from the buffer.
+ *
+ * @param buffer The buffer to read from.
+ * @param value The destination of the integer.
+ * @return The number of bytes read, or 0 if read failed.
+ */
+size_t circular_buffer_read_svarint16(struct circular_buffer *buffer, int16_t *value);
+
+/**
+ * Writes signed 16-bit variable length integer to the buffer.
+ *
+ * @param buffer The buffer to write to.
+ * @param value The source of the integer.
+ * @return The number of bytes written, or 0 if write failed.
+ */
+size_t circular_buffer_write_svarint16(struct circular_buffer *buffer, int16_t value);
+
+/**
+ * Reads unsigned 64-bit variable length integer from the buffer without removing it.
  *
  * @param buffer The buffer to read from.
  * @param offset The offset to read from.
  * @param value The destination of the integer.
  * @return The number of bytes read, or 0 if read failed.
  */
-size_t circular_buffer_peek_uvarint(struct circular_buffer *buffer, size_t offset, uint64_t *value);
+size_t circular_buffer_peek_uvarint64(struct circular_buffer *buffer, size_t offset, uint64_t *value);
 
 /**
- * Reads signed variable length integer from the buffer without removing it.
+ * Reads signed 64-bit variable length integer from the buffer without removing it.
  *
  * @param buffer The buffer to read from.
  * @param offset The offset to read from.
  * @param value The destination of the integer.
  * @return The number of bytes read, or 0 if read failed.
  */
-size_t circular_buffer_peek_svarint(struct circular_buffer *buffer, size_t offset, int64_t *value);
+size_t circular_buffer_peek_svarint64(struct circular_buffer *buffer, size_t offset, int64_t *value);
 
 /**
- * Writes unsigned variable length integer to the buffer without moving the write offset.
+ * Reads unsigned 32-bit variable length integer from the buffer without removing it.
+ *
+ * @param buffer The buffer to read from.
+ * @param offset The offset to read from.
+ * @param value The destination of the integer.
+ * @return The number of bytes read, or 0 if read failed.
+ */
+size_t circular_buffer_peek_uvarint32(struct circular_buffer *buffer, size_t offset, uint32_t *value);
+
+/**
+ * Reads signed 32-bit variable length integer from the buffer without removing it.
+ *
+ * @param buffer The buffer to read from.
+ * @param offset The offset to read from.
+ * @param value The destination of the integer.
+ * @return The number of bytes read, or 0 if read failed.
+ */
+size_t circular_buffer_peek_svarint32(struct circular_buffer *buffer, size_t offset, int32_t *value);
+
+/**
+ * Reads unsigned 16-bit variable length integer from the buffer without removing it.
+ *
+ * @param buffer The buffer to read from.
+ * @param offset The offset to read from.
+ * @param value The destination of the integer.
+ * @return The number of bytes read, or 0 if read failed.
+ */
+size_t circular_buffer_peek_uvarint16(struct circular_buffer *buffer, size_t offset, uint16_t *value);
+
+/**
+ * Reads signed 16-bit variable length integer from the buffer without removing it.
+ *
+ * @param buffer The buffer to read from.
+ * @param offset The offset to read from.
+ * @param value The destination of the integer.
+ * @return The number of bytes read, or 0 if read failed.
+ */
+size_t circular_buffer_peek_svarint16(struct circular_buffer *buffer, size_t offset, int16_t *value);
+
+/**
+ * Writes unsigned 64-bit variable length integer to the buffer without moving the write offset.
  * @param buffer
  * @param offset
  * @param value
  * @return The number of bytes written, or 0 if write failed.
  */
-size_t circular_buffer_poke_uvarint(struct circular_buffer *buffer, size_t offset, uint64_t value);
+size_t circular_buffer_poke_uvarint64(struct circular_buffer *buffer, size_t offset, uint64_t value);
 
 /**
- * Writes signed variable length integer to the buffer without moving the write offset.
+ * Writes signed 64-bit variable length integer to the buffer without moving the write offset.
  * @param buffer
  * @param offset
  * @param value
  * @return The number of bytes written, or 0 if write failed.
  */
-size_t circular_buffer_poke_svarint(struct circular_buffer *buffer, size_t offset, int64_t value);
+size_t circular_buffer_poke_svarint64(struct circular_buffer *buffer, size_t offset, int64_t value);
+
+/**
+ * Writes unsigned 32-bit variable length integer to the buffer without moving the write offset.
+ * @param buffer
+ * @param offset
+ * @param value
+ * @return The number of bytes written, or 0 if write failed.
+ */
+size_t circular_buffer_poke_uvarint32(struct circular_buffer *buffer, size_t offset, uint32_t value);
+
+/**
+ * Writes signed 32-bit variable length integer to the buffer without moving the write offset.
+ * @param buffer
+ * @param offset
+ * @param value
+ * @return The number of bytes written, or 0 if write failed.
+ */
+size_t circular_buffer_poke_svarint32(struct circular_buffer *buffer, size_t offset, int32_t value);
+
+/**
+ * Writes unsigned 16-bit variable length integer to the buffer without moving the write offset.
+ * @param buffer
+ * @param offset
+ * @param value
+ * @return The number of bytes written, or 0 if write failed.
+ */
+size_t circular_buffer_poke_uvarint16(struct circular_buffer *buffer, size_t offset, uint16_t value);
+
+/**
+ * Writes signed 16-bit variable length integer to the buffer without moving the write offset.
+ * @param buffer
+ * @param offset
+ * @param value
+ * @return The number of bytes written, or 0 if write failed.
+ */
+size_t circular_buffer_poke_svarint16(struct circular_buffer *buffer, size_t offset, int16_t value);
 
 #ifdef __cplusplus
 }
