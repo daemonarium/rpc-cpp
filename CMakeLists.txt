@@ -16,6 +16,7 @@ include_directories(src)
 aux_source_directory(src/serialization SERIALIZATION_FILES)
 aux_source_directory(src/io IO_FILES)
 aux_source_directory(src/socket SOCKET_FILES)
+set(SOCKET_HANDLERS_FILES ${CMAKE_SOURCE_DIR}/cpp-rpc/src/utils/socket_handlers.cpp)
 
 set(WASI_STUBS_FILES ${CMAKE_SOURCE_DIR}/cpp-rpc/src/utils/wasi_stubs.cpp)
 set(MODULE_FILES ${CMAKE_SOURCE_DIR}/cpp-rpc/src/utils/module.cpp)
@@ -47,7 +48,7 @@ if(WASM)
     get_filename_component(EXAMPLE_MODULE_NAME ${EXAMPLE_MODULE_FILE} NAME_WE)
     
     add_executable(${EXAMPLE_MODULE_NAME} ${EXAMPLE_MODULE_FILE} ${SERIALIZATION_FILES} ${IO_FILES} ${SOCKET_FILES}
-                   ${WASI_STUBS_FILES} ${MODULE_FILES})
+                   ${WASI_STUBS_FILES} ${MODULE_FILES} ${SOCKET_HANDLERS_FILES})
     target_compile_options(${EXAMPLE_MODULE_NAME} PRIVATE
       -fwasm-exceptions
     )

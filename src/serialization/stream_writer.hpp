@@ -102,18 +102,18 @@ namespace serialization {
       }
       void write_string(const std::string_view value) {
         debug("write_string %zd '%s'", value.size(), value.data());
-        write_uvar_int(value.size());
+        write_uvar_int_32(static_cast<std::uint32_t>(value.size()));
         stream_.write(value.data(), value.size());
-      };      
+      };
       void write_binary(const std::vector<std::uint8_t>&& value) {
         debug("write_binary %zd", value.size());
-        write_uvar_int(value.size());
+        write_uvar_int_32(static_cast<std::uint32_t>(value.size()));
         stream_.write((char*)(value.data()), (size_t)(value.size()));
       }
 
       void write_length(std::size_t length) {
         debug("write_length %zd", length);
-        write_uvar_int(length);
+        write_uvar_int_32(static_cast<std::uint32_t>(length));
       }
       
       template <typename T>
@@ -125,7 +125,7 @@ namespace serialization {
           throw std::runtime_error("Type not registered");
         }
         size_t index = it->second;
-        write_uvar_int(index);
+        write_uvar_int_32(static_cast<std::uint32_t>(index));
         serialize_typed_functions_[index](&data);
       }
 
@@ -138,7 +138,7 @@ namespace serialization {
           throw std::runtime_error("Type not registered");
         }
         size_t index = it->second;
-        write_uvar_int(index);
+        write_uvar_int_32(static_cast<std::uint32_t>(index));
         serialize_message_functions_[index](&data);
       }
 
@@ -188,28 +188,28 @@ namespace serialization {
       void write_pointer(std::shared_ptr<T> value, WriteLater write_later) {
         debug("write_pointer %p", value.get());
         if(!value) {
-          write_svar_int(0); // null = 0
+          write_svar_int_32(0);  // null = 0
           return;
         }
         auto existing = std::find(written_pointers_.begin(), written_pointers_.end(), value);
         if (existing != written_pointers_.end()) {
-          std::int32_t index = std::distance(written_pointers_.begin(), existing);
-          std::int32_t delta = index - written_pointers_.size();
-          write_svar_int(delta); // always negative
+          std::int32_t index = static_cast<std::int32_t>(std::distance(written_pointers_.begin(), existing));
+          std::int32_t delta = index - static_cast<std::int32_t>(written_pointers_.size());
+          write_svar_int_32(delta);  // always negative
           return;
         }
-        auto will_be_written = std::find_if(write_later_.begin(), write_later_.end(), 
+        auto will_be_written = std::find_if(write_later_.begin(), write_later_.end(),
         [value](const auto& pair) {
             return pair.first == value;
           }
         );
         if (will_be_written != write_later_.end()) {
-          size_t index = std::distance(write_later_.begin(), will_be_written);
-          write_svar_int(index + 1); // always positive
+          std::int32_t index = static_cast<std::int32_t>(std::distance(write_later_.begin(), will_be_written));
+          write_svar_int_32(index + 1);  // always positive
           return;
         }
-        size_t index = write_later_.size();
-        write_svar_int(index + 1); // always positive
+        std::int32_t index = static_cast<std::int32_t>(write_later_.size());
+        write_svar_int_32(index + 1);  // always positive
         write_later_.push_back({value, write_later});
       }
 

@@ -34,22 +34,29 @@ namespace serialization {
 
       enum class Kind {
         Void = 0,
-        UnsignedInteger = 1,
-        SignedInteger = 2,
-        FloatingPoint = 3,
-        Boolean = 4,
-        String = 5,
-        Binary = 6,
-        Enum = 7,
-        Array = 8,
-        Object = 9,
-        DynamicObject = 10,
-        Pointer = 11,
-        Map = 12,
-        Function = 16,
-        Method = 17,       
-        Message = 18,
-        Exception = 19
+        Boolean = 1,
+        UnsignedInteger8 = 2,
+        SignedInteger8 = 3,
+        UnsignedInteger16 = 4,
+        SignedInteger16 = 5,
+        UnsignedInteger32 = 6,
+        SignedInteger32 = 7,
+        UnsignedInteger64 = 8,
+        SignedInteger64 = 9,
+        FloatingPoint32 = 10,
+        FloatingPoint64 = 11,
+        Enum = 12,
+        Array = 13,
+        String = 14,
+        Binary = 15,
+        Map = 16,
+        Object = 17,
+        DynamicObject = 18,
+        Message = 19,
+        Exception = 20,
+        Pointer = 21,
+        Function = 22,
+        Method = 23
       };
 
       struct member {
@@ -300,45 +307,80 @@ namespace serialization {
     }
   
     template <typename T, TypeRegistry R>
-    requires(UnsignedInteger<T> && !Boolean<T>)
-    std::shared_ptr<type_description> static create(T value, R& registry) {
-      return registry.get_type(1);
-    }
-  
-    template <typename T, TypeRegistry R>
-    requires(SignedInteger<T> && !Boolean<T>)
+    requires(UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 1))
     std::shared_ptr<type_description> static create(T value, R& registry) {
       return registry.get_type(2);
     }
-  
     template <typename T, TypeRegistry R>
-    requires(FloatingPoint<T> && !Boolean<T>)
-    std::shared_ptr<type_description> static create(T value, R& registry) {
-      return registry.get_type(3);
-    }
-  
-    template <typename T, TypeRegistry R>
-    requires(Boolean<T>)
+    requires(UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 2))
     std::shared_ptr<type_description> static create(T value, R& registry) {
       return registry.get_type(4);
     }
-  
+    template <typename T, TypeRegistry R>
+    requires(UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 4))
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(6);
+    }
+    template <typename T, TypeRegistry R>
+    requires(UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 8))
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(8);
+    }
+
+    template <typename T, TypeRegistry R>
+    requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 1))
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(3);
+    }
+    template <typename T, TypeRegistry R>
+    requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 2))
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(5);
+    }
+    template <typename T, TypeRegistry R>
+    requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 4))
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(7);
+    }
+    template <typename T, TypeRegistry R>
+    requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 8))
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(9);
+    }
+
+    template <typename T, TypeRegistry R>
+    requires(FloatingPoint<T> && !Boolean<T> && (sizeof(T) == 4))
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(10);
+    }
+    template <typename T, TypeRegistry R>
+    requires(FloatingPoint<T> && !Boolean<T> && (sizeof(T) == 8))
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(11);
+    }
+
+    template <typename T, TypeRegistry R>
+    requires(Boolean<T>)
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      return registry.get_type(1);
+    }
+
     template <typename T, TypeRegistry R>
     requires(Void<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
       return registry.get_type(0);
     }
-  
+
     template <typename T, TypeRegistry R>
     requires(String<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
-      return registry.get_type(5);
+      return registry.get_type(12);
     }
-  
+
     template <typename T, TypeRegistry R>
     requires(Binary<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
-      return registry.get_type(6);
+      return registry.get_type(13);
     }
   
     template <typename T, TypeRegistry R>
@@ -371,7 +413,7 @@ namespace serialization {
     template <typename T, TypeRegistry R>
     requires(SharedPointer<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
-      return registry.get_type(7); // polymorphic pointer
+      return registry.get_type(14);  // polymorphic pointer
     }
 
     template <std::meta::info member, TypeRegistry R>
@@ -398,7 +440,7 @@ namespace serialization {
         auto depromisified_value = depromisify(return_value);
         method_type->item = create(depromisified_value, registry);
       } else {
-        method_type->item = registry.get_type(0); // void
+        method_type->item = registry.get_type(0);  // void
       }
     }    
   

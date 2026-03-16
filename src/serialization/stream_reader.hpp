@@ -111,31 +111,31 @@ namespace serialization {
       }
       void read_string(std::string& value) {
         debug("read_string");
-        size_t length = read_uvar_int();
+        std::uint32_t length = read_uvar_int_32();
         value.resize(length);
         stream_.read(value.data(), length);
-        debug("  read_string result %zd '%s'", length, value.c_str());
+        debug("  read_string result %u '%s'", length, value.c_str());
       }
       void read_binary(std::vector<std::uint8_t>& value) {
         debug("read_binary");
-        size_t length = read_uvar_int();
+        std::uint32_t length = read_uvar_int_32();
         value.resize(length);
         stream_.read((char*)(value.data()), length);
-        debug("  read_binary result %zd", length);
+        debug("  read_binary result %u", length);
       }
       void read_length(std::size_t& value) {
         debug("read_length");
-        value = read_uvar_int();
+        value = read_uvar_int_32();
         debug("  read_length result %zd", value);
       }
 
       template <typename T>
       void read_typed(std::shared_ptr<T>& data) {
         debug("read_typed");
-        size_t index = read_uvar_int();
+        std::uint32_t index = read_uvar_int_32();
         void* ptr = &data;
-        debug("  read_typed type %d", index);
-        deserialize_typed_functions_[index](ptr);        
+        debug("  read_typed type %u", index);
+        deserialize_typed_functions_[index](ptr);
       }
 
       void read_typed(std::weak_ptr<void>& data) {
@@ -149,10 +149,10 @@ namespace serialization {
       template <typename T>
       void read_message(std::shared_ptr<T>& data) {
         debug("read_message");
-        size_t index = read_uvar_int();
+        std::uint32_t index = read_uvar_int_32();
         void* ptr = &data;
-        debug("  read_message type %d", index);
-        deserialize_message_functions_[index](ptr);        
+        debug("  read_message type %u", index);
+        deserialize_message_functions_[index](ptr);
       }
 
       void read_message(std::weak_ptr<void>& data) {
@@ -199,15 +199,15 @@ namespace serialization {
 
       template <typename T>
       void read_pointer(std::shared_ptr<T>& value, ReadLater read_later) {
-        debug("read_pointer");        
-        std::int64_t delta = read_svar_int();
-        debug("  read_pointer delta %d", delta);        
+        debug("read_pointer");
+        std::int32_t delta = read_svar_int_32();
+        debug("  read_pointer delta %d", delta);
         if(delta == 0) {
           value = nullptr;
           return;
         }
-        if(delta < 0) { /// already read
-          size_t index = read_pointers_.size() - delta;
+        if(delta < 0) {  // already read
+          size_t index = static_cast<size_t>(static_cast<std::ptrdiff_t>(read_pointers_.size()) + delta);
           value = std::static_pointer_cast<T>(read_pointers_[index]);
           debug("  read_pointer - existsing %p", value.get());
           return;

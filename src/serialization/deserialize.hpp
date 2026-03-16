@@ -43,23 +43,79 @@ namespace serialization {
   }
 
   template <UnsignedInteger T, Reader R>
-  requires(Reader<R> && UnsignedInteger<T> && !Boolean<T>)
+  requires(Reader<R> && UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 1))
+  void deserialize(R& reader, T& value) {
+    std::uint8_t u8;
+    reader.read_u8(u8);
+    value = static_cast<T>(u8);
+  }
+
+  template <UnsignedInteger T, Reader R>
+  requires(Reader<R> && UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 2))
+  void deserialize(R& reader, T& value) {
+    std::uint16_t u16;
+    reader.read_u16(u16);
+    value = static_cast<T>(u16);
+  }
+
+  template <UnsignedInteger T, Reader R>
+  requires(Reader<R> && UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 4))
+  void deserialize(R& reader, T& value) {
+    std::uint32_t u32;
+    reader.read_u32(u32);
+    value = static_cast<T>(u32);
+  }
+
+  template <UnsignedInteger T, Reader R>
+  requires(Reader<R> && UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 8))
   void deserialize(R& reader, T& value) {
     std::uint64_t u64;
     reader.read_u64(u64);
-    value = u64;
+    value = static_cast<T>(u64);
   }
 
   template <SignedInteger T, Reader R>
-  requires(Reader<R> && SignedInteger<T> && !Boolean<T>)
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && (sizeof(T) == 1))
+  void deserialize(R& reader, T& value) {
+    std::int8_t i8;
+    reader.read_i8(i8);
+    value = static_cast<T>(i8);
+  }
+
+  template <SignedInteger T, Reader R>
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && (sizeof(T) == 2))
+  void deserialize(R& reader, T& value) {
+    std::int16_t i16;
+    reader.read_i16(i16);
+    value = static_cast<T>(i16);
+  }
+
+  template <SignedInteger T, Reader R>
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && (sizeof(T) == 4))
+  void deserialize(R& reader, T& value) {
+    std::int32_t i32;
+    reader.read_i32(i32);
+    value = static_cast<T>(i32);
+  }
+
+  template <SignedInteger T, Reader R>
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && (sizeof(T) == 8))
   void deserialize(R& reader, T& value) {
     std::int64_t i64;
     reader.read_i64(i64);
-    value = i64;
+    value = static_cast<T>(i64);
   }
 
   template <FloatingPoint T, Reader R>
-  requires(Reader<R> && FloatingPoint<T> && !Boolean<T>)
+  requires(Reader<R> && FloatingPoint<T> && !Boolean<T> && (sizeof(T) == 4))
+  void deserialize(R& reader, T& value) {
+    float f32;
+    reader.read_f32(f32);
+    value = static_cast<T>(f32);
+  }
+
+  template <FloatingPoint T, Reader R>
+  requires(Reader<R> && FloatingPoint<T> && !Boolean<T> && (sizeof(T) == 8))
   void deserialize(R& reader, T& value) {
     reader.read_f64(value);
   }

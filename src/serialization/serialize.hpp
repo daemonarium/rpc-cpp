@@ -41,19 +41,61 @@ namespace serialization {
   }
 
   template <class T, Writer W>
-  requires(UnsignedInteger<T> && !Boolean<T> && Writer<W>)
+  requires(UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 1) && Writer<W>)
+  void serialize(W& writer, const T& value) {
+    writer.write_u8(static_cast<std::uint8_t>(value));
+  }
+
+  template <class T, Writer W>
+  requires(UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 2) && Writer<W>)
+  void serialize(W& writer, const T& value) {
+    writer.write_u16(static_cast<std::uint16_t>(value));
+  }
+
+  template <class T, Writer W>
+  requires(UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 4) && Writer<W>)
+  void serialize(W& writer, const T& value) {
+    writer.write_u32(static_cast<std::uint32_t>(value));
+  }
+
+  template <class T, Writer W>
+  requires(UnsignedInteger<T> && !Boolean<T> && (sizeof(T) == 8) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_u64(value);
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 1) && Writer<W>)
+  void serialize(W& writer, const T& value) {
+    writer.write_i8(static_cast<std::int8_t>(value));
+  }
+
+  template <class T, Writer W>
+  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 2) && Writer<W>)
+  void serialize(W& writer, const T& value) {
+    writer.write_i16(static_cast<std::int16_t>(value));
+  }
+
+  template <class T, Writer W>
+  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 4) && Writer<W>)
+  void serialize(W& writer, const T& value) {
+    writer.write_i32(static_cast<std::int32_t>(value));
+  }
+
+  template <class T, Writer W>
+  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 8) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i64(value);
   }
 
   template <class T, Writer W>
-  requires(FloatingPoint<T> && !Boolean<T> && Writer<W>)
+  requires(FloatingPoint<T> && !Boolean<T> && (sizeof(T) == 4) && Writer<W>)
+  void serialize(W& writer, const T& value) {
+    writer.write_f32(static_cast<float>(value));
+  }
+
+  template <class T, Writer W>
+  requires(FloatingPoint<T> && !Boolean<T> && (sizeof(T) == 8) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_f64(value);
   }

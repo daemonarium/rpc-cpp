@@ -13,14 +13,21 @@ namespace serialization {
       type_registry(bool rpc = true)
         : types_({
           std::make_shared<type_description>("void", type_description::Kind::Void),
-          std::make_shared<type_description>("uint", type_description::Kind::UnsignedInteger),
-          std::make_shared<type_description>("sint", type_description::Kind::SignedInteger),
-          std::make_shared<type_description>("float", type_description::Kind::FloatingPoint),
           std::make_shared<type_description>("bool", type_description::Kind::Boolean),
+          std::make_shared<type_description>("uint8", type_description::Kind::UnsignedInteger8),
+          std::make_shared<type_description>("sint8", type_description::Kind::SignedInteger8),
+          std::make_shared<type_description>("uint16", type_description::Kind::UnsignedInteger16),
+          std::make_shared<type_description>("sint16", type_description::Kind::SignedInteger16),
+          std::make_shared<type_description>("uint32", type_description::Kind::UnsignedInteger32),
+          std::make_shared<type_description>("sint32", type_description::Kind::SignedInteger32),
+          std::make_shared<type_description>("uint64", type_description::Kind::UnsignedInteger64),
+          std::make_shared<type_description>("sint64", type_description::Kind::SignedInteger64),
+          std::make_shared<type_description>("float32", type_description::Kind::FloatingPoint32),
+          std::make_shared<type_description>("float64", type_description::Kind::FloatingPoint64),
           std::make_shared<type_description>("string", type_description::Kind::String),
           std::make_shared<type_description>("binary", type_description::Kind::Binary),
           std::make_shared<type_description>("pointer", type_description::Kind::Pointer),
-          std::make_shared<type_description>("map", type_description::Kind::Map),          
+          std::make_shared<type_description>("map", type_description::Kind::Map),
         }) { 
         if(rpc) {
           rpc_request request;

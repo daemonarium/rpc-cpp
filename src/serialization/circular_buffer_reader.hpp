@@ -114,7 +114,7 @@ namespace serialization {
       }
 
       void read_string(std::string& value) {
-        size_t length = read_uvar_int();
+        std::uint32_t length = read_uvar_int_32();
         value.resize(length);
         if(length > 0) {
           read_bytes(value.data(), length);
@@ -122,7 +122,7 @@ namespace serialization {
       }
 
       void read_binary(std::vector<std::uint8_t>& value) {
-        size_t length = read_uvar_int();
+        std::uint32_t length = read_uvar_int_32();
         value.resize(length);
         if(length > 0) {
           read_bytes(value.data(), length);
@@ -130,12 +130,12 @@ namespace serialization {
       }
 
       void read_length(std::size_t& value) {
-        value = read_uvar_int();
+        value = read_uvar_int_32();
       }
 
       template <typename T>
       void read_typed(std::shared_ptr<T>& data) {
-        size_t index = read_uvar_int();
+        std::uint32_t index = read_uvar_int_32();
         void* ptr = &data;
         deserialize_typed_functions_[index](ptr);
       }
@@ -148,7 +148,7 @@ namespace serialization {
 
       template <typename T>
       void read_message(std::shared_ptr<T>& data) {
-        size_t index = read_uvar_int();
+        std::uint32_t index = read_uvar_int_32();
         void* ptr = &data;
         deserialize_message_functions_[index](ptr);
       }
@@ -195,13 +195,13 @@ namespace serialization {
 
       template <typename T>
       void read_pointer(std::shared_ptr<T>& value, ReadLater read_later) {
-        std::int64_t delta = read_svar_int();
+        std::int32_t delta = read_svar_int_32();
         if(delta == 0) {
           value = nullptr;
           return;
         }
-        if(delta < 0) { /// already read
-          size_t index = read_pointers_.size() - delta;
+        if(delta < 0) {  // already read
+          size_t index = static_cast<size_t>(static_cast<std::ptrdiff_t>(read_pointers_.size()) + delta);
           value = std::static_pointer_cast<T>(read_pointers_[index]);
           return;
         }
