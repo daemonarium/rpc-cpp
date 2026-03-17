@@ -5,7 +5,6 @@
 #include "deserialize.hpp"
 #include "type_concepts.hpp"
 #include "promise.hpp"
-#include "rpc_exception.hpp"
 #include "rpc.hpp"
 #include <tuple>
 #include <functional>
@@ -26,14 +25,14 @@ namespace serialization {
       std::shared_ptr<promise<Rt>> call(std::uint64_t function_id, Args... args) {
         auto p = std::make_shared<promise<Rt>>();
         std::uint64_t request_id = last_request_id_++;
-        response_handlers_[request_id] = [p, request_id, this](bool success, Rd& reader, const std::string& error) {
+        response_handlers_[request_id] = [p, request_id, this](bool success, Rd& reader, std::exception_ptr eptr) {
           if(success) {
             Rt result;
             deserialize(reader, result);
             reader.read_rest();
             p->resolve(result);
           } else {
-            p->reject(std::make_exception_ptr(rpc_exception(error)));
+            p->reject(eptr);
           }
           response_handlers_.erase(request_id);
         };
@@ -46,11 +45,11 @@ namespace serialization {
       std::shared_ptr<promise<void>> call(std::uint64_t function_id, Args... args) {
         auto p = std::make_shared<promise<void>>();
         std::uint64_t request_id = last_request_id_++;
-        response_handlers_[request_id] = [p, request_id, this](bool success, Rd&, const std::string& error) {
+        response_handlers_[request_id] = [p, request_id, this](bool success, Rd&, std::exception_ptr eptr) {
           if(success) {
             p->resolve();
           } else {
-            p->reject(std::make_exception_ptr(rpc_exception(error)));
+            p->reject(eptr);
           }
           response_handlers_.erase(request_id);
         };
@@ -63,14 +62,14 @@ namespace serialization {
       std::shared_ptr<promise<Rt>> call_method(std::uint64_t function_id, Id id, Args... args) {
         auto p = std::make_shared<promise<Rt>>();
         std::uint64_t request_id = last_request_id_++;
-        response_handlers_[request_id] = [p, request_id, this](bool success, Rd& reader, const std::string& error) {
+        response_handlers_[request_id] = [p, request_id, this](bool success, Rd& reader, std::exception_ptr eptr) {
           if(success) {
             Rt result;
             deserialize(reader, result);
             reader.read_rest();
             p->resolve(result);
           } else {
-            p->reject(std::make_exception_ptr(rpc_exception(error)));
+            p->reject(eptr);
           }
           response_handlers_.erase(request_id);
         };
@@ -83,11 +82,11 @@ namespace serialization {
       std::shared_ptr<promise<Rt>> call_method(std::uint64_t function_id, Id id, Args... args) {
         auto p = std::make_shared<promise<Rt>>();
         std::uint64_t request_id = last_request_id_++;
-        response_handlers_[request_id] = [p, request_id, this](bool success, Rd&, const std::string& error) {
+        response_handlers_[request_id] = [p, request_id, this](bool success, Rd&, std::exception_ptr eptr) {
           if(success) {
             p->resolve();
           } else {
-            p->reject(std::make_exception_ptr(rpc_exception(error)));
+            p->reject(eptr);
           }
           response_handlers_.erase(request_id);
         };
@@ -97,6 +96,8 @@ namespace serialization {
 
       void handle_response(Rd& reader) {
         rpc_response header;
+        unsigned char success;
+        deserialize(reader, success);
         deserialize(reader, header);
         reader.read_rest();
 
@@ -105,18 +106,18 @@ namespace serialization {
           throw std::runtime_error("Response handler " + std::to_string(header.request_id) + " not found");
         }
 
-        if(header.success) {
-          it->second(true, reader, "");
+        if(success) {
+          it->second(true, reader, nullptr);
         } else {
-          std::string error;
-          reader.read_string(error);
-          it->second(false, reader, error);
+          std::exception_ptr eptr = reader.read_exception();
+          reader.read_rest();
+          it->second(false, reader, eptr);
         }
       }
 
     private:
 
-      std::unordered_map<std::uint32_t, std::function<void(bool, Rd&, const std::string&)>> response_handlers_;
+      std::unordered_map<std::uint32_t, std::function<void(bool, Rd&, std::exception_ptr)>> response_handlers_;
       std::uint32_t last_request_id_ = 0;
       Wr& writer_;
       std::function<void()> before_send_;

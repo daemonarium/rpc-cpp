@@ -133,8 +133,15 @@ namespace serialization {
     });
   }
 
+  template <class T, Writer W>
+  requires(SimpleException<T> && Writer<W>)
+  void serialize(W& writer, const T& value) {
+    std::string msg(value.what());
+    serialize(writer, msg);
+  }
+
   template <class T, Writer W, class B>
-  requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && Writer<W>)
+  requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && !SimpleException<T> && Writer<W>)
   void serialize_members(W& writer, const T& value) {
     [:expand(std::meta::bases_of(^^B, std::meta::access_context::unchecked())):] >> [&]<std::meta::info base> {
       serialize_members<T, W, typename [:std::meta::type_of(base):]>(writer, value);
@@ -147,7 +154,7 @@ namespace serialization {
   }
 
   template <class T, class W>  
-  requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && Writer<W>)
+  requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && !SimpleException<T> && Writer<W>)
   void serialize(W& writer, const T& value) {    
     writer.begin_frame();
     serialize_members<T, W, T>(writer, value);

@@ -155,7 +155,7 @@ namespace serialization {
   }
 
   template <class T, Reader R, class B>
-  requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && Reader<R>)
+  requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && !SimpleException<T> && Reader<R>)
   void deserialize_members(R& reader, T& value) {
     [:expand(std::meta::bases_of(^^B, std::meta::access_context::unchecked())):] >> [&]<std::meta::info base> {      
       deserialize_members<T, R, typename [:std::meta::type_of(base):]>(reader, value);
@@ -167,8 +167,16 @@ namespace serialization {
     };    
   }
 
+  template <SimpleException T, Reader R>
+  requires(SimpleException<T> && Reader<R>)
+  void deserialize(R& reader, T& value) {
+    std::string msg;
+    deserialize(reader, msg);
+    value = T(msg);
+  }
+
   template <class T, Reader R>
-  requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && Reader<R>)  
+  requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && !SimpleException<T> && Reader<R>)  
   void deserialize(R& reader, T& value) {
     reader.enter_frame();
     deserialize_members<T, R, T>(reader, value);

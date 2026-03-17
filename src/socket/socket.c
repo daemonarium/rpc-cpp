@@ -9,10 +9,20 @@
 
 struct sockets_table *sockets_table;
 
+#ifdef __EMSCRIPTEN__
+
 __attribute__((export_name("waos_sockets_table")))
 struct sockets_table* get_sockets_table() {
   return sockets_table;
 }
+
+#else
+
+struct sockets_table* get_sockets_table() {
+  return sockets_table;
+}
+
+#endif
 
 int sockets_init(size_t initial_table_size) {
   sockets_table = malloc(sizeof(struct sockets_table) + initial_table_size * sizeof(struct socket_info));

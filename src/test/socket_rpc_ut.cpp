@@ -5,16 +5,21 @@
 #include <stdexcept>
 
 // type_registry.hpp must be included before rpc.hpp to resolve the circular dependency
-#include "serialization/type_registry.hpp"
 #include "test_socket_utils.hpp"
 #include "serialization/socket_rpc_client.hpp"
 #include "serialization/socket_rpc_server.hpp"
-#include "serialization/rpc_exception.hpp"
 #include "serialization/promise.hpp"
 
 using namespace serialization;
 
 namespace {
+
+  struct typed_error : public std::exception {
+    typed_error() = default;
+    explicit typed_error(const std::string& msg) : msg_(msg) {}
+    const char* what() const noexcept override { return msg_.c_str(); }
+    std::string msg_;
+  };
 
   // Test RPC service with static methods (discovered via reflection)
   class TestService {
@@ -34,12 +39,16 @@ namespace {
         throw std::runtime_error("oops");
       }
 
+      static std::int32_t failing_typed() {
+        throw typed_error("typed oops");
+      }
+
       static std::string echo(std::string s) {
         return s;
       }
   };
 
-  // function_id assignment order: 0=add, 1=greet, 2=noop, 3=failing, 4=echo
+  // function_id assignment order: 0=add, 1=greet, 2=noop, 3=failing, 4=failing_typed, 5=echo
 
   struct [[=serialization::message()]] custom_msg {
     std::uint64_t value;
@@ -140,7 +149,7 @@ int main() {
       rejected = true;
       try {
         std::rethrow_exception(ep);
-      } catch(const rpc_exception& e) {
+      } catch(const std::runtime_error& e) {
         error_msg = e.what();
       }
     });
@@ -149,6 +158,41 @@ int main() {
 
     expect(rejected == true);
     expect(error_msg == std::string("oops"));
+  };
+
+  "socket rpc typed exception propagation"_test = [] {
+    socket_loopback_pair sockets;
+    socket_rpc_server server(sockets.s0);
+    socket_rpc_client client(sockets.s1);
+
+    TestService svc;
+    server.register_recursive(svc);
+
+    server.channel().writer().register_serialize_exception_function<typed_error>();
+    server.channel().reader().register_deserialize_exception_function<typed_error>();
+    client.channel().writer().register_serialize_exception_function<typed_error>();
+    client.channel().reader().register_deserialize_exception_function<typed_error>();
+
+    bool rejected = false;
+    std::string error_msg;
+    bool caught_typed = false;
+
+    // function_id for failing_typed is 4 (after add, greet, noop, failing)
+    client.call<std::int32_t>(4)->on_rejected([&](std::exception_ptr ep) {
+      rejected = true;
+      try {
+        std::rethrow_exception(ep);
+      } catch(const typed_error& e) {
+        caught_typed = true;
+        error_msg = e.what();
+      }
+    });
+
+    rpc_roundtrip(sockets, client, server);
+
+    expect(rejected == true);
+    expect(caught_typed == true);
+    expect(error_msg == std::string("typed oops"));
   };
 
   "socket rpc invalid function id"_test = [] {
@@ -206,7 +250,7 @@ int main() {
     bool resolved = false;
     std::string result;
 
-    client.call<std::string>(4, large)->on_resolved([&](std::string r) {
+    client.call<std::string>(5, large)->on_resolved([&](std::string r) {
       resolved = true;
       result = r;
     });

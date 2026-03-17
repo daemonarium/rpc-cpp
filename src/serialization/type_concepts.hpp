@@ -6,6 +6,7 @@
 #include <vector>
 #include <type_traits>
 #include <memory>
+#include <exception>
 
 namespace serialization {
   // Helper type traits to detect smart pointer specializations
@@ -130,5 +131,16 @@ namespace serialization {
 
   template <typename T>
   concept Polymorphic = std::is_polymorphic_v<T>;
+
+  template <typename T>
+  concept ExceptionLike = std::is_class_v<T> && std::is_base_of_v<std::exception, T>;
+
+  template <typename T>
+  concept SimpleException =
+    ExceptionLike<T> &&
+    requires(const T& e) {
+      { e.what() } -> std::convertible_to<const char*>;
+    } &&
+    (std::is_constructible_v<T, const std::string&> || std::is_constructible_v<T, const char*>);
 
 }

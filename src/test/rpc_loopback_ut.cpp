@@ -11,7 +11,6 @@
 #include "serialization/stream_reader.hpp"
 #include "serialization/rpc_server.hpp"
 #include "serialization/rpc_client.hpp"
-#include "serialization/rpc_exception.hpp"
 #include "serialization/promise.hpp"
 
 using namespace serialization;
@@ -59,7 +58,10 @@ namespace {
       : writer(output_stream), reader(input_stream),
         server(),
         client(std::make_shared<client_type>(writer, [this]() { }, [this]() { this->handle_call(); }))
-    {}
+    {
+      writer.register_serialize_exception_function<std::runtime_error>();
+      reader.register_deserialize_exception_function<std::runtime_error>();
+    }
 
     void handle_call() {
       std::string call = output_stream.str();
@@ -148,11 +150,11 @@ int main() {
         rejected = true;
         try {
           std::rethrow_exception(ep);
-        } catch(const rpc_exception& e) {
+        } catch(const std::runtime_error& e) {
           error_msg = e.what();
         }
       });
-    } catch(const rpc_exception& e) {
+    } catch(const std::runtime_error& e) {
       rejected = true;
       error_msg = e.what();
     }

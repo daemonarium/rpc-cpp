@@ -41,6 +41,8 @@ namespace serialization {
         socket_ = get_socket_info(socket_id_);
         reader_ = std::make_unique<circular_buffer_reader>(&socket_->input_buffer, 0);
         writer_ = std::make_unique<circular_buffer_writer>(&socket_->output_buffer, 0);
+        writer_->register_serialize_exception_function<std::runtime_error>();
+        reader_->register_deserialize_exception_function<std::runtime_error>();
       }
       ~socket_message_channel() {}
 

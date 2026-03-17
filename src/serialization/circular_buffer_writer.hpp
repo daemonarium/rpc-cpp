@@ -1,5 +1,6 @@
 #pragma once
 
+#include "serialization/rpc.hpp"
 #include <cstdint>
 #include <typeindex>
 #include <vector>
@@ -7,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <algorithm>
+#include <exception>
 
 extern "C" {
 #include <io/circular_buffer.h>
@@ -116,6 +118,30 @@ namespace serialization {
 
       void write_length(std::size_t length) {
         write_uvar_int_32(static_cast<std::uint32_t>(length));
+      }
+
+      template <typename T>
+      void register_serialize_exception_function() {
+        auto type = std::type_index(typeid(T));
+        exception_indexes_[type] = serialize_exception_functions_.size();
+        serialize_exception_functions_.push_back([&writer = *this](const std::exception& e) {
+          serialize(writer, dynamic_cast<const T&>(e));
+        });
+      }
+
+      void write_exception(const std::exception& e) {
+        auto type_index = std::type_index(typeid(e));
+        auto it = exception_indexes_.find(type_index);
+        if(it == exception_indexes_.end()) {
+          throw unknown_exception("Exception type not registered");
+        }
+        size_t index = it->second;
+        write_uvar_int_32(static_cast<std::uint32_t>(index));
+        serialize_exception_functions_[index](e);
+      }
+
+      bool has_exception(std::type_index type) const {
+        return exception_indexes_.find(type) != exception_indexes_.end();
       }
 
       template <typename T>
@@ -229,6 +255,9 @@ namespace serialization {
 
       std::vector<std::function<void(void*)>> serialize_message_functions_;
       std::unordered_map<std::type_index, size_t> message_indexes_;
+
+      std::vector<std::function<void(const std::exception&)>> serialize_exception_functions_;
+      std::unordered_map<std::type_index, size_t> exception_indexes_;
 
       void ensure_writable(size_t bytes) {
         size_t available = circular_buffer_reserve_for_writing(buffer_, bytes + write_offset_);

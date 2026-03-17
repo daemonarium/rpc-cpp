@@ -27,7 +27,7 @@ namespace serialization {
         reader.read_rest();
 
         if(req.function_id >= this->functions_.size()) {
-          send_error(writer, req.request_id, "Function not found");
+          send_error(writer, req.request_id, std::runtime_error("Function not found"));
           return serialization::promise<void>::resolved();
         }
         return this->functions_[req.function_id](reader, writer, req.request_id);
@@ -42,7 +42,9 @@ namespace serialization {
 
       void send_response(Wr& writer, uint64_t request_id) {
         before_send_();
-        serialize(writer, rpc_response{request_id, true});
+        unsigned char success = 1;
+        serialize(writer, success);
+        serialize(writer, rpc_response{request_id});
         writer.write_rest();
         sender_();
       }
@@ -50,15 +52,25 @@ namespace serialization {
       template <typename Rt>
       void send_response(Wr& writer, uint64_t request_id, Rt& result) {
         before_send_();
-        serialize(writer, rpc_response{request_id, true});
+        unsigned char success = 1;
+        serialize(writer, success);
+        serialize(writer, rpc_response{request_id});
         serialize(writer, result);
         writer.write_rest();
         sender_();
       }
 
-      void send_error(Wr& writer, uint64_t request_id, const std::string& error) {
-        before_send_();
-        serialize(writer, rpc_error{request_id, false, error});
+      void send_error(Wr& writer, uint64_t request_id, const std::exception& e) {
+        before_send_();        
+        unsigned char success = 0;
+        serialize(writer, success);
+        serialize(writer, rpc_error{request_id});
+        try {
+          writer.write_exception(e);
+        } catch(unknown_exception& ex) {
+          auto rt = unknown_exception(std::string("Unknown exception: ") + e.what());
+          writer.write_exception(rt);
+        }
         writer.write_rest();
         sender_();
       }
@@ -72,9 +84,9 @@ namespace serialization {
           Rt result = function();
           send_response(writer, request_id, result);
         } catch(const std::exception& e) {
-          send_error(writer, request_id, e.what());
+          send_error(writer, request_id, e);
         } catch(...) {
-          send_error(writer, request_id, "Unknown non-standard exception");
+          send_error(writer, request_id, unknown_exception("Unknown exception"));
         }
         return serialization::promise<void>::resolved();
       }
@@ -94,17 +106,17 @@ namespace serialization {
             try {
               std::rethrow_exception(exception);
             } catch(const std::exception& e) {
-              send_error(writer, request_id, e.what());
+              send_error(writer, request_id, e);
             } catch(...) {
-              send_error(writer, request_id, "Unknown non-standard exception");
+              send_error(writer, request_id, unknown_exception("Unknown exception"));
             }
             p->resolve();
           });
         } catch(const std::exception& e) {
-          send_error(writer, request_id, e.what());
+          send_error(writer, request_id, e);
           p->resolve();
         } catch(...) {
-          send_error(writer, request_id, "Unknown non-standard exception");
+          send_error(writer, request_id, unknown_exception("Unknown exception"));
           p->resolve();
         }
         return p;
@@ -118,9 +130,9 @@ namespace serialization {
           function();
           send_response(writer, request_id);
         } catch(const std::exception& e) {
-          send_error(writer, request_id, e.what());
+          send_error(writer, request_id, e);
         } catch(...) {
-          send_error(writer, request_id, "Unknown non-standard exception");
+          send_error(writer, request_id, unknown_exception("Unknown exception"));
         }
         return serialization::promise<void>::resolved();
       }
@@ -140,18 +152,18 @@ namespace serialization {
           }, [&](std::exception_ptr exception) {
             try {
               std::rethrow_exception(exception);
-            } catch(const std::exception& e) {
-              send_error(writer, request_id, e.what());
+            } catch(const std::exception& e) {              
+              send_error(writer, request_id, e);
             } catch(...) {
-              send_error(writer, request_id, "Unknown non-standard exception");
+              send_error(writer, request_id, unknown_exception("Unknown exception"));
             }
             p->resolve();
           });
         } catch(const std::exception& e) {
-          send_error(writer, request_id, e.what());
+          send_error(writer, request_id, e);
           p->resolve();
         } catch(...) {
-          send_error(writer, request_id, "Unknown non-standard exception");
+          send_error(writer, request_id, unknown_exception("Unknown exception"));
           p->resolve();
         }
         return p;

@@ -3,9 +3,7 @@
 #include "socket_message_channel.hpp"
 #include "serialize.hpp"
 #include "deserialize.hpp"
-#include "type_concepts.hpp"
 #include "promise.hpp"
-#include "rpc_exception.hpp"
 #include "rpc.hpp"
 #include <memory>
 #include <unordered_map>
@@ -29,7 +27,7 @@ namespace serialization {
           if(it == response_handlers_.end()) {
             throw std::runtime_error("Response handler " + std::to_string(resp.request_id) + " not found");
           }
-          it->second(true, payload_size, "");
+          it->second(true, payload_size, nullptr);
           response_handlers_.erase(it);
         });
 
@@ -38,7 +36,9 @@ namespace serialization {
           if(it == response_handlers_.end()) {
             throw std::runtime_error("Response handler " + std::to_string(err.request_id) + " not found");
           }
-          it->second(false, 0, err.error);
+          std::exception_ptr eptr = channel_.reader().read_exception();
+          channel_.reader().read_rest();
+          it->second(false, 0, eptr);
           response_handlers_.erase(it);
         });
       }
@@ -50,14 +50,14 @@ namespace serialization {
         auto p = std::make_shared<promise<Rt>>();
         std::uint64_t request_id = last_request_id_++;
 
-        response_handlers_[request_id] = [p, this](bool success, size_t payload_size, const std::string& error) {
+        response_handlers_[request_id] = [p, this](bool success, size_t payload_size, std::exception_ptr eptr) {
           if(success) {
             Rt result;
             deserialize(channel_.reader(), result);
             channel_.reader().read_rest();
             p->resolve(result);
           } else {
-            p->reject(std::make_exception_ptr(rpc_exception(error)));
+            p->reject(eptr);
           }
         };
 
@@ -75,11 +75,11 @@ namespace serialization {
         auto p = std::make_shared<promise<void>>();
         std::uint64_t request_id = last_request_id_++;
 
-        response_handlers_[request_id] = [p](bool success, size_t, const std::string& error) {
+        response_handlers_[request_id] = [p](bool success, size_t, std::exception_ptr eptr) {
           if(success) {
             p->resolve();
           } else {
-            p->reject(std::make_exception_ptr(rpc_exception(error)));
+            p->reject(eptr);
           }
         };
 
@@ -97,14 +97,14 @@ namespace serialization {
         auto p = std::make_shared<promise<Rt>>();
         std::uint64_t request_id = last_request_id_++;
 
-        response_handlers_[request_id] = [p, this](bool success, size_t payload_size, const std::string& error) {
+        response_handlers_[request_id] = [p, this](bool success, size_t payload_size, std::exception_ptr eptr) {
           if(success) {
             Rt result;
             deserialize(channel_.reader(), result);
             channel_.reader().read_rest();
             p->resolve(result);
           } else {
-            p->reject(std::make_exception_ptr(rpc_exception(error)));
+            p->reject(eptr);
           }
         };
 
@@ -123,11 +123,11 @@ namespace serialization {
         auto p = std::make_shared<promise<void>>();
         std::uint64_t request_id = last_request_id_++;
 
-        response_handlers_[request_id] = [p](bool success, size_t, const std::string& error) {
+        response_handlers_[request_id] = [p](bool success, size_t, std::exception_ptr eptr) {
           if(success) {
             p->resolve();
           } else {
-            p->reject(std::make_exception_ptr(rpc_exception(error)));
+            p->reject(eptr);
           }
         };
 
@@ -154,7 +154,7 @@ namespace serialization {
 
     private:
       socket_message_channel channel_;
-      std::unordered_map<std::uint64_t, std::function<void(bool, size_t, const std::string&)>> response_handlers_;
+      std::unordered_map<std::uint64_t, std::function<void(bool, size_t, std::exception_ptr)>> response_handlers_;
       std::uint64_t last_request_id_ = 0;
   };
 

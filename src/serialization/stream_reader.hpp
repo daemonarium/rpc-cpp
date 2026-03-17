@@ -1,6 +1,7 @@
 #pragma once
 
 #include "reader.hpp"
+#include "deserialize.hpp"
 #include <cstdint>
 #include <istream>
 #include <typeindex>
@@ -8,6 +9,7 @@
 #include <unordered_map>
 #include <functional>
 #include <memory>
+#include <exception>
 
 #ifndef __EMSCRIPTEN__
 //#define SERIALIZATION_STREAM_READER_DEBUG
@@ -127,6 +129,31 @@ namespace serialization {
         debug("read_length");
         value = read_uvar_int_32();
         debug("  read_length result %zd", value);
+      }
+
+      template <typename T>
+      void register_deserialize_exception_function() {
+        auto type = std::type_index(typeid(T));
+        exception_read_indexes_[type] = deserialize_exception_functions_.size();
+        deserialize_exception_functions_.push_back([&reader = *this]() -> std::exception_ptr {
+          if constexpr (std::is_same_v<T, std::runtime_error>) {
+            std::runtime_error ex("");
+            ::serialization::deserialize(reader, ex);
+            return std::make_exception_ptr(std::move(ex));
+          } else {
+            T ex{};
+            ::serialization::deserialize(reader, ex);
+            return std::make_exception_ptr(std::move(ex));
+          }
+        });
+      }
+
+      std::exception_ptr read_exception() {
+        std::uint32_t index = read_uvar_int_32();
+        if(index >= deserialize_exception_functions_.size()) {
+          throw std::runtime_error("Exception type not registered for deserialization");
+        }
+        return deserialize_exception_functions_[index]();
       }
 
       template <typename T>
@@ -263,6 +290,9 @@ namespace serialization {
 
       std::vector<std::function<void(void*)>> deserialize_message_functions_;
       std::unordered_map<std::type_index, size_t> message_indexes_;
+
+      std::vector<std::function<std::exception_ptr()>> deserialize_exception_functions_;
+      std::unordered_map<std::type_index, size_t> exception_read_indexes_;
 
       #ifdef SERIALIZATION_STREAM_READER_DEBUG
       uint32_t indent_ = 0;

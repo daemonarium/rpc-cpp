@@ -118,32 +118,26 @@ int main() {
   };
 
   "types serialize rpc_response roundtrip"_test = [] {
-    rpc_response resp{42, true};
+    rpc_response resp{42};
     auto result = roundtrip(resp);
     expect(result.request_id == 42_u);
-    expect(result.success == true);
   };
 
   "types serialize rpc_response failure"_test = [] {
-    rpc_response resp{99, false};
+    rpc_error resp{99};
     auto result = roundtrip(resp);
-    expect(result.request_id == 99_u);
-    expect(result.success == false);
+    expect(result.request_id == 99_u);    
   };
 
-  "types serialize rpc_error roundtrip"_test = [] {
-    rpc_error err{42, false, "something failed"};
+  "types serialize rpc_error failure header roundtrip"_test = [] {
+    rpc_error err{42};
     auto result = roundtrip(err);
     expect(result.request_id == 42_u);
-    expect(result.success == false);
-    expect(result.error == std::string("something failed"));
   };
 
-  "types serialize rpc_error empty message"_test = [] {
-    rpc_error err{0, false, ""};
+  "types serialize rpc_error success header roundtrip"_test = [] {
+    rpc_error err{0};
     auto result = roundtrip(err);
     expect(result.request_id == 0_u);
-    expect(result.success == false);
-    expect(result.error == std::string(""));
   };
 }
