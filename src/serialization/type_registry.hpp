@@ -36,6 +36,7 @@ namespace serialization {
           register_type(serialization::type_description::create(request, *this));
           register_type(serialization::type_description::create(response, *this));
           register_type(serialization::type_description::create(error, *this));
+          register_type(serialization::type_description::create(unknown_exception("Unknown exception"), *this));
         }
         reindex();
       }

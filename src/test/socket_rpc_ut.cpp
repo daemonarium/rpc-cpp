@@ -141,7 +141,9 @@ int main() {
 
     TestService svc;
     server.register_recursive(svc);
-
+    server.register_recursive(std::runtime_error("oops"));
+    client.channel().register_exception_type<std::runtime_error>();
+    
     bool rejected = false;
     std::string error_msg;
 

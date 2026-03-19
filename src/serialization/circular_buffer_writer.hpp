@@ -123,6 +123,10 @@ namespace serialization {
       template <typename T>
       void register_serialize_exception_function() {
         auto type = std::type_index(typeid(T));
+        if(exception_indexes_.find(type) != exception_indexes_.end()) {
+         // printf("register_serialize_exception_function: %s %lu already registered\n", type.name(), type.hash_code());
+          throw std::runtime_error("Exception type already registered");
+        }       
         exception_indexes_[type] = serialize_exception_functions_.size();
         serialize_exception_functions_.push_back([&writer = *this](const std::exception& e) {
           serialize(writer, dynamic_cast<const T&>(e));

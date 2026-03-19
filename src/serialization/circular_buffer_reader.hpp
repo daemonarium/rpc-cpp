@@ -140,7 +140,7 @@ namespace serialization {
         auto type = std::type_index(typeid(T));
         exception_read_indexes_[type] = deserialize_exception_functions_.size();
         deserialize_exception_functions_.push_back([&reader = *this]() -> std::exception_ptr {
-          if constexpr (std::is_same_v<T, std::runtime_error>) {
+          if constexpr (SimpleException<T>) {
             std::runtime_error ex("");
             ::serialization::deserialize(reader, ex);
             return std::make_exception_ptr(std::move(ex));

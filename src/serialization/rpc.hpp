@@ -22,7 +22,7 @@ namespace serialization {
     std::uint64_t request_id;
   };
 
-  class unknown_exception : public std::exception {
+  struct [[=serialization::exception()]] unknown_exception : public std::exception {
     public:
       unknown_exception(const std::string& message) : message_(message) {}
       ~unknown_exception() {}

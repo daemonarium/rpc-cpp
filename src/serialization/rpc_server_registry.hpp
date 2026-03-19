@@ -95,7 +95,7 @@ namespace serialization {
       }
 
       template <typename T, typename Srv>
-      requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T>)
+      requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && !SimpleException<T>)
       static void register_recursive(T value, Srv& server) {
         std::string_view name;
         if constexpr (std::meta::has_identifier(^^T)) {
@@ -221,6 +221,20 @@ namespace serialization {
           };
         }
         server.debug_indent(-1);
+      }
+
+      template <typename T, typename Srv>
+      requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && SimpleException<T>)
+      static void register_recursive(T value, Srv& server) {
+        std::string_view name;
+        if constexpr (std::meta::has_identifier(^^T)) {
+          name = std::meta::identifier_of(^^T);
+        } else {
+          name = std::meta::display_string_of(^^T);
+        }   
+        if(server.registered_types.find(std::string(name)) != server.registered_types.end()) return;
+        server.registered_types.insert(std::string(name));
+        server.debug("rpc registering simple exception type %s", std::string(name).c_str());
       }
 
       template<typename Rt, typename... Args>

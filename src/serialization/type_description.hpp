@@ -445,7 +445,7 @@ namespace serialization {
     }    
   
     template <typename T, TypeRegistry R>
-    requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T>)
+    requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && !SimpleException<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
       std::string_view name;
       if constexpr (std::meta::has_identifier(^^T)) {
@@ -559,6 +559,30 @@ namespace serialization {
         };
       }
   
+      return type;
+    }
+
+    template <typename T, TypeRegistry R>
+    requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && SimpleException<T>)
+    std::shared_ptr<type_description> static create(T value, R& registry) {
+      std::string_view name;
+      if constexpr (std::meta::has_identifier(^^T)) {
+        name = std::meta::identifier_of(^^T);
+      } else {
+        name = std::meta::display_string_of(^^T);
+      }      
+      std::shared_ptr<type_description> type = registry.get_type(name);
+      if(type) return type;
+      type = std::make_shared<type_description>(std::string(name), type_description::Kind::Exception);
+      type->type_index_ = std::type_index(typeid(T));
+      registry.register_type(type);
+      std::vector<member_annotation_ptr> annotations;
+      type_description::member m = type_description::member(
+        std::string("what"),
+        create(std::string("what"), registry),
+        annotations
+      );
+      type->members.push_back(m); 
       return type;
     }
       

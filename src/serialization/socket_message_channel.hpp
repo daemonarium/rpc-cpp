@@ -40,11 +40,7 @@ namespace serialization {
         : socket_id_(socket_id) {
         socket_ = get_socket_info(socket_id_);
         reader_ = std::make_unique<circular_buffer_reader>(&socket_->input_buffer, 0);
-        writer_ = std::make_unique<circular_buffer_writer>(&socket_->output_buffer, 0);
-        writer_->register_serialize_exception_function<unknown_exception>();
-        reader_->register_deserialize_exception_function<unknown_exception>();
-        writer_->register_serialize_exception_function<std::runtime_error>();
-        reader_->register_deserialize_exception_function<std::runtime_error>();
+        writer_ = std::make_unique<circular_buffer_writer>(&socket_->output_buffer, 0);        
       }
       ~socket_message_channel() {}
 
@@ -69,6 +65,12 @@ namespace serialization {
           // After handler returns, handle_data() does circular_buffer_skip_read(msg_len)
           // which automatically skips any unread payload
         });
+      }
+
+      template <typename T>
+      void register_exception_type() {
+        writer_->register_serialize_exception_function<T>();
+        reader_->register_deserialize_exception_function<T>();
       }
 
       // Send a complete message (no payload)

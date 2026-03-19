@@ -18,6 +18,7 @@ namespace serialization {
         channel_.register_message_type<rpc_request>();
         channel_.register_message_type<rpc_response>();
         channel_.register_message_type<rpc_error>();
+        channel_.register_exception_type<unknown_exception>();
 
         channel_.on_message<rpc_request>([this](rpc_request& req, size_t payload_size) {
           handle_rpc_request(req, payload_size);
@@ -72,11 +73,15 @@ namespace serialization {
 
       void send_error(uint64_t request_id, const std::exception& e) {
         auto& writer = channel_.begin_send(rpc_error{request_id});
+        printf("send_error: %s %lu\n", typeid(e).name(), typeid(e).hash_code());
         try {
           writer.write_exception(e);
+          printf("send_error: wrote exception\n");
         } catch(unknown_exception& ex) {
           auto rt = unknown_exception(std::string("Unknown exception: ") + e.what());
+          printf("send_error: created unknown exception: %s %lu\n", typeid(rt).name(), typeid(rt).hash_code());
           writer.write_exception(rt);
+          printf("send_error: wrote unknown exception\n");
         }
         writer.write_rest();
         channel_.commit_send();
@@ -115,6 +120,7 @@ namespace serialization {
             try {
               std::rethrow_exception(exception);
             } catch(const std::exception& e) {
+              printf("process_call: exception: %s\n", e.what());
               send_error(request_id, e);
             } catch(...) {
               send_error(request_id, unknown_exception("Unknown exception"));

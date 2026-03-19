@@ -21,6 +21,7 @@ namespace serialization {
         channel_.register_message_type<rpc_request>();
         channel_.register_message_type<rpc_response>();
         channel_.register_message_type<rpc_error>();
+        channel_.register_exception_type<unknown_exception>();
 
         channel_.on_message<rpc_response>([this](rpc_response& resp, size_t payload_size) {
           auto it = response_handlers_.find(resp.request_id);
@@ -32,12 +33,14 @@ namespace serialization {
         });
 
         channel_.on_message<rpc_error>([this](rpc_error& err, size_t) {
+          printf("on_message<rpc_error>: %lu\n", err.request_id);
           auto it = response_handlers_.find(err.request_id);
           if(it == response_handlers_.end()) {
             throw std::runtime_error("Response handler " + std::to_string(err.request_id) + " not found");
           }
-          std::exception_ptr eptr = channel_.reader().read_exception();
+          std::exception_ptr eptr = channel_.reader().read_exception();          
           channel_.reader().read_rest();
+          printf("on_message<rpc_error>: read exception: %s %lu\n", typeid(eptr).name(), typeid(eptr).hash_code());
           it->second(false, 0, eptr);
           response_handlers_.erase(it);
         });
