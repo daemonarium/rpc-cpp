@@ -141,7 +141,7 @@ namespace serialization {
         exception_read_indexes_[type] = deserialize_exception_functions_.size();
         deserialize_exception_functions_.push_back([&reader = *this]() -> std::exception_ptr {
           if constexpr (SimpleException<T>) {
-            std::runtime_error ex("");
+            T ex("");
             ::serialization::deserialize(reader, ex);
             return std::make_exception_ptr(std::move(ex));
           } else {

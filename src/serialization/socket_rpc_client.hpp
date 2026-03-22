@@ -18,10 +18,6 @@ namespace serialization {
     public:
       socket_rpc_client(uint32_t socket_id)
         : channel_(socket_id) {
-        channel_.register_message_type<rpc_request>();
-        channel_.register_message_type<rpc_response>();
-        channel_.register_message_type<rpc_error>();
-        channel_.register_exception_type<unknown_exception>();
 
         channel_.on_message<rpc_response>([this](rpc_response& resp, size_t payload_size) {
           auto it = response_handlers_.find(resp.request_id);
@@ -46,6 +42,13 @@ namespace serialization {
         });
       }
       ~socket_rpc_client() {}
+
+      void register_basic_types() {
+        channel_.register_message_type<rpc_request>();
+        channel_.register_message_type<rpc_response>();
+        channel_.register_message_type<rpc_error>();
+        channel_.register_exception_type<unknown_exception>();
+      }
 
       template <typename Rt, typename... Args>
       requires(!Void<Rt>)

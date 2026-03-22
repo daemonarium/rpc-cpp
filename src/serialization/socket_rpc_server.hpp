@@ -15,16 +15,19 @@ namespace serialization {
     public:
       socket_rpc_server(uint32_t socket_id)
         : channel_(socket_id) {
-        channel_.register_message_type<rpc_request>();
-        channel_.register_message_type<rpc_response>();
-        channel_.register_message_type<rpc_error>();
-        channel_.register_exception_type<unknown_exception>();
 
         channel_.on_message<rpc_request>([this](rpc_request& req, size_t payload_size) {
           handle_rpc_request(req, payload_size);
         });
       }
       ~socket_rpc_server() {}
+
+      void register_basic_types() {
+        channel_.register_message_type<rpc_request>();
+        channel_.register_message_type<rpc_response>();
+        channel_.register_message_type<rpc_error>();
+        channel_.register_exception_type<unknown_exception>();
+      }
 
       // Forward registration methods from rpc_server_registry
       template <typename T>

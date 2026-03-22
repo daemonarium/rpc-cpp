@@ -273,7 +273,7 @@ namespace serialization {
         name = std::meta::identifier_of(^^T);
       } else {
         name = std::meta::display_string_of(^^T);
-      }     
+      }
       std::shared_ptr<type_description> type = registry.get_type(name);
       if(type) return type;
       type = std::make_shared<type_description>(
@@ -283,7 +283,7 @@ namespace serialization {
       );
       type->type_index_ = std::type_index(typeid(T));
       registry.register_type(type);
-      type->item = create(typename T::value_type(), registry);          
+      type->item = create(typename T::value_type(), registry);
       return type;
     }
 

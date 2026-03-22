@@ -24,6 +24,7 @@ namespace serialization {
 
   struct [[=serialization::exception()]] unknown_exception : public std::exception {
     public:
+      unknown_exception() : message_("Unknown exception") {}
       unknown_exception(const std::string& message) : message_(message) {}
       ~unknown_exception() {}
       const char* what() const noexcept override { return message_.c_str(); }

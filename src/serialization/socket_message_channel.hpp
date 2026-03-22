@@ -73,6 +73,12 @@ namespace serialization {
         reader_->register_deserialize_exception_function<T>();
       }
 
+      template <typename T>
+      void register_dynamic_type() {
+        writer_->register_serialize_typed_function<T>();
+        reader_->register_deserialize_typed_function<T>();
+      }
+
       // Send a complete message (no payload)
       template <typename T>
       void send_message(const T& message) {
@@ -87,6 +93,7 @@ namespace serialization {
         auto type = std::type_index(typeid(T));
         auto it = message_type_indexes_.find(type);
         if(it == message_type_indexes_.end()) {
+          printf("Message type not registered for sending: %s\n", type.name());
           throw std::runtime_error("Message type not registered for sending");
         }
         size_t index = it->second;

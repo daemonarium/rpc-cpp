@@ -76,6 +76,9 @@ int main() {
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
 
+    server.register_basic_types();
+    client.register_basic_types();
+
     TestService svc;
     server.register_recursive(svc);
 
@@ -97,6 +100,9 @@ int main() {
     socket_loopback_pair sockets;
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
+
+    server.register_basic_types();
+    client.register_basic_types();
 
     TestService svc;
     server.register_recursive(svc);
@@ -120,6 +126,9 @@ int main() {
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
 
+    server.register_basic_types();
+    client.register_basic_types();
+
     TestService svc;
     server.register_recursive(svc);
 
@@ -139,9 +148,12 @@ int main() {
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
 
+    server.register_basic_types();
+    client.register_basic_types();
+
     TestService svc;
     server.register_recursive(svc);
-    server.register_recursive(std::runtime_error("oops"));
+    server.channel().register_exception_type<std::runtime_error>();
     client.channel().register_exception_type<std::runtime_error>();
     
     bool rejected = false;
@@ -167,13 +179,14 @@ int main() {
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
 
+    server.register_basic_types();
+    client.register_basic_types();
+
     TestService svc;
     server.register_recursive(svc);
 
-    server.channel().writer().register_serialize_exception_function<typed_error>();
-    server.channel().reader().register_deserialize_exception_function<typed_error>();
-    client.channel().writer().register_serialize_exception_function<typed_error>();
-    client.channel().reader().register_deserialize_exception_function<typed_error>();
+    server.channel().register_exception_type<typed_error>();
+    client.channel().register_exception_type<typed_error>();
 
     bool rejected = false;
     std::string error_msg;
@@ -202,6 +215,9 @@ int main() {
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
 
+    server.register_basic_types();
+    client.register_basic_types();
+
     TestService svc;
     server.register_recursive(svc);
 
@@ -220,6 +236,9 @@ int main() {
     socket_loopback_pair sockets;
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
+
+    server.register_basic_types();
+    client.register_basic_types();
 
     TestService svc;
     server.register_recursive(svc);
@@ -245,6 +264,9 @@ int main() {
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
 
+    server.register_basic_types();
+    client.register_basic_types();
+
     TestService svc;
     server.register_recursive(svc);
 
@@ -267,6 +289,9 @@ int main() {
     socket_loopback_pair sockets;
     socket_rpc_server server(sockets.s0);
     socket_rpc_client client(sockets.s1);
+
+    server.register_basic_types();
+    client.register_basic_types();
 
     TestService svc;
     server.register_recursive(svc);
