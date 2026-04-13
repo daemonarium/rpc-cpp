@@ -1,6 +1,5 @@
 #pragma once
 
-#include <map>
 #include <string>
 #include "serialization/annotations.hpp"
 #include "serialization/promise.hpp"
@@ -62,7 +61,7 @@ namespace waos {
         return serialization::promise<size_t>::resolved(0);
       }
 
-      static std::shared_ptr<serialization::promise<void>> set_mana_limit(size_t mana_limit) {
+      static std::shared_ptr<serialization::promise<void>> set_mana_limit(process_id process, size_t mana_limit) {
         return serialization::promise<void>::resolved();
       }
   };
