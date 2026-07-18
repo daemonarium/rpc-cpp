@@ -1,6 +1,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -106,10 +107,10 @@ namespace serialization {
   concept Pointer = UniquePointer<T> || SharedPointer<T>;
 
   template <typename T>
-  concept UnsignedInteger = std::is_unsigned_v<T>;
+  concept UnsignedInteger = std::is_unsigned_v<T> && std::is_integral_v<T>;
 
   template <typename T>
-  concept SignedInteger = std::is_signed_v<T>;
+  concept SignedInteger = std::is_signed_v<T> && std::is_integral_v<T>;
 
   template <typename T>
   concept FloatingPoint = std::is_floating_point_v<T>;
