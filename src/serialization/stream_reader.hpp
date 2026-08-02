@@ -134,6 +134,19 @@ namespace serialization {
         debug("  read_length result %zd", value);
       }
 
+      template <class Map, class KeyCb, class ValCb>
+      void read_map(Map& map, KeyCb&& key_cb, ValCb&& val_cb) {
+        std::size_t length = 0;
+        read_length(length);
+        for(std::size_t i = 0; i < length; ++i) {
+          typename Map::key_type key{};
+          typename Map::mapped_type item{};
+          key_cb(*this, key);
+          val_cb(*this, item);
+          map.insert(std::make_pair(std::move(key), std::move(item)));
+        }
+      }
+
       template <typename T>
       void register_deserialize_exception_function() {
         auto type = std::type_index(typeid(T));

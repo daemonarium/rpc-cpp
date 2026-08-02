@@ -3,13 +3,17 @@
 #include "annotations.hpp"
 #include "deserialize.hpp"
 #include "flat_encoding.hpp"
+#include "flat_bytes_writer.hpp"
 #include "flat_source.hpp"
 #include "flat_stream_reader.hpp"
 #include "meta_expand.hpp"
+#include "serialize.hpp"
 #include "type_concepts.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <span>
@@ -38,6 +42,9 @@ namespace serialization {
 
   template <class E>
   class flat_vector_view;
+
+  template <class K, class V>
+  class flat_map_view;
 
   class flat_session : public std::enable_shared_from_this<flat_session> {
     public:
@@ -216,6 +223,166 @@ namespace serialization {
       std::size_t size_ = 0;
       std::size_t elem_start_ = 0;
       std::vector<std::uint32_t> cps_;
+  };
+
+  namespace flat_detail {
+
+    template <class MT>
+    auto read_value_at(const std::shared_ptr<flat_session>& session, std::size_t abs,
+        std::size_t abs_end) {
+      if constexpr (SharedPointer<MT>) {
+        using U = typename MT::element_type;
+        return session->template pointer_at<U>(abs);
+      } else if constexpr (String<MT>) {
+        std::uint8_t buf[4];
+        session->source().peek(abs, buf, 4);
+        std::uint32_t len = flat_load_le<std::uint32_t>(buf);
+        const auto& bytes = session->bytes();
+        return std::string_view(reinterpret_cast<const char*>(bytes.data() + abs + 4), len);
+      } else if constexpr (Binary<MT>) {
+        std::uint8_t buf[4];
+        session->source().peek(abs, buf, 4);
+        std::uint32_t len = flat_load_le<std::uint32_t>(buf);
+        return std::span<const std::uint8_t>(session->bytes().data() + abs + 4, len);
+      } else if constexpr (ContainerButNotString<MT> && !Binary<MT>) {
+        using Elem = typename MT::value_type;
+        return flat_vector_view<Elem>(session, abs, abs_end);
+      } else if constexpr (Map<MT>) {
+        return flat_map_view<typename MT::key_type, typename MT::mapped_type>(session, abs, abs_end);
+      } else if constexpr (UserDefinedType<MT> && !String<MT> && !Pointer<MT> && !SimpleException<MT>) {
+        return flat_view<MT>(session, abs, abs_end);
+      } else if constexpr (Boolean<MT>) {
+        std::uint8_t b = 0;
+        session->source().peek(abs, &b, 1);
+        return static_cast<MT>(b != 0);
+      } else if constexpr (Enum<MT>) {
+        std::uint8_t buf[8];
+        session->source().peek(abs, buf, 8);
+        return static_cast<MT>(flat_load_le<std::uint64_t>(buf));
+      } else {
+        constexpr std::size_t n = flat_fixed_size<MT>();
+        std::uint8_t buf[8]{};
+        session->source().peek(abs, buf, n);
+        return flat_load_le<MT>(buf);
+      }
+    }
+
+  } // namespace flat_detail
+
+  template <class K, class V>
+  class flat_map_view {
+    public:
+      flat_map_view(std::shared_ptr<flat_session> session, std::size_t start, std::size_t end)
+        : session_(std::move(session)), start_(start), end_(end) {
+        std::uint8_t nbuf[4];
+        session_->source().peek(start_, nbuf, 4);
+        size_ = flat_load_le<std::uint32_t>(nbuf);
+        if(size_ == 0) {
+          keys_base_ = start_ + 4;
+          values_base_ = keys_base_;
+          return;
+        }
+        std::uint8_t format_k = 0;
+        session_->source().peek(start_ + 4, &format_k, 1);
+        const std::size_t wk = flat_unpack_width(format_k);
+        key_offs_.resize(size_ + 1);
+        for(std::size_t i = 0; i < size_ + 1; ++i) {
+          std::uint8_t buf[4]{};
+          session_->source().peek(start_ + 5 + i * wk, buf, wk);
+          key_offs_[i] = flat_load_cp(buf, wk);
+        }
+        keys_base_ = start_ + 5 + (size_ + 1) * wk;
+        values_base_ = keys_base_ + key_offs_[size_];
+
+        std::uint8_t format_v = 0;
+        session_->source().peek(end_ - 1, &format_v, 1);
+        val_width_ = flat_unpack_width(format_v);
+        const std::size_t trailer = flat_trailer_size(size_, val_width_);
+        const std::size_t trailer_start = end_ - trailer;
+        std::uint8_t format_v0 = 0;
+        session_->source().peek(trailer_start, &format_v0, 1);
+        if(format_v0 != format_v) {
+          throw std::runtime_error("flat_map_view value trailer format mismatch");
+        }
+        val_offs_.resize(size_);
+        for(std::size_t i = 0; i < size_; ++i) {
+          std::uint8_t buf[4]{};
+          session_->source().peek(trailer_start + 1 + i * val_width_, buf, val_width_);
+          val_offs_[i] = flat_load_cp(buf, val_width_);
+        }
+      }
+
+      std::size_t size() const { return size_; }
+
+      bool contains(const K& key) const {
+        return find_index(key).has_value();
+      }
+
+      auto find(const K& key) const {
+        auto idx = find_index(key);
+        if(!idx) {
+          throw std::runtime_error("flat_map_view::find key not found");
+        }
+        return at_index(*idx);
+      }
+
+      auto operator[](const K& key) const {
+        return find(key);
+      }
+
+      auto at_index(std::size_t i) const {
+        if(i >= size_) {
+          throw std::out_of_range("flat_map_view index");
+        }
+        const std::size_t abs = values_base_ + val_offs_[i];
+        const std::size_t abs_end = value_end(i);
+        return flat_detail::read_value_at<V>(session_, abs, abs_end);
+      }
+
+    private:
+      std::shared_ptr<flat_session> session_;
+      std::size_t start_ = 0;
+      std::size_t end_ = 0;
+      std::size_t size_ = 0;
+      std::size_t keys_base_ = 0;
+      std::size_t values_base_ = 0;
+      std::size_t val_width_ = 1;
+      std::vector<std::uint32_t> key_offs_;
+      std::vector<std::uint32_t> val_offs_;
+
+      std::size_t value_end(std::size_t i) const {
+        if(i + 1 < size_) {
+          return values_base_ + val_offs_[i + 1];
+        }
+        return end_ - flat_trailer_size(size_, val_width_);
+      }
+
+      std::optional<std::size_t> find_index(const K& key) const {
+        if(size_ == 0) {
+          return std::nullopt;
+        }
+        std::vector<std::uint8_t> needle;
+        flat_bytes_writer w(needle);
+        serialize(w, key);
+        const auto& bytes = session_->bytes();
+        std::size_t lo = 0;
+        std::size_t hi = size_;
+        while(lo < hi) {
+          const std::size_t mid = lo + (hi - lo) / 2;
+          const std::uint32_t off = key_offs_[mid];
+          const std::uint32_t len = key_offs_[mid + 1] - off;
+          const std::size_t cmp_len = std::min<std::size_t>(len, needle.size());
+          const int cmp = std::memcmp(bytes.data() + keys_base_ + off, needle.data(), cmp_len);
+          if(cmp < 0 || (cmp == 0 && len < needle.size())) {
+            lo = mid + 1;
+          } else if(cmp > 0 || (cmp == 0 && len > needle.size())) {
+            hi = mid;
+          } else {
+            return mid;
+          }
+        }
+        return std::nullopt;
+      }
   };
 
   template <class T>
@@ -406,43 +573,8 @@ namespace serialization {
       template <class MT>
       auto read_field_at(std::size_t rel_pos, std::optional<std::uint32_t> cp_after) const {
         const std::size_t abs = start_ + rel_pos;
-        if constexpr (SharedPointer<MT>) {
-          using U = typename MT::element_type;
-          return session_->template pointer_at<U>(abs);
-        } else if constexpr (String<MT>) {
-          std::uint8_t buf[4];
-          session_->source().peek(abs, buf, 4);
-          std::uint32_t len = flat_load_le<std::uint32_t>(buf);
-          const auto& bytes = session_->bytes();
-          return std::string_view(reinterpret_cast<const char*>(bytes.data() + abs + 4), len);
-        } else if constexpr (Binary<MT>) {
-          std::uint8_t buf[4];
-          session_->source().peek(abs, buf, 4);
-          std::uint32_t len = flat_load_le<std::uint32_t>(buf);
-          return std::span<const std::uint8_t>(session_->bytes().data() + abs + 4, len);
-        } else if constexpr (ContainerButNotString<MT> && !Binary<MT>) {
-          using Elem = typename MT::value_type;
-          std::size_t abs_end = cp_after ? (start_ + *cp_after) : end_;
-          return flat_vector_view<Elem>(session_, abs, abs_end);
-        } else if constexpr (Map<MT>) {
-          throw std::runtime_error("flat_view map get not implemented");
-        } else if constexpr (UserDefinedType<MT> && !String<MT> && !Pointer<MT> && !SimpleException<MT>) {
-          std::size_t abs_end = cp_after ? (start_ + *cp_after) : end_;
-          return flat_view<MT>(session_, abs, abs_end);
-        } else if constexpr (Boolean<MT>) {
-          std::uint8_t b = 0;
-          session_->source().peek(abs, &b, 1);
-          return static_cast<MT>(b != 0);
-        } else if constexpr (Enum<MT>) {
-          std::uint8_t buf[8];
-          session_->source().peek(abs, buf, 8);
-          return static_cast<MT>(flat_load_le<std::uint64_t>(buf));
-        } else {
-          constexpr std::size_t n = flat_fixed_size<MT>();
-          std::uint8_t buf[8]{};
-          session_->source().peek(abs, buf, n);
-          return flat_load_le<MT>(buf);
-        }
+        std::size_t abs_end = cp_after ? (start_ + *cp_after) : end_;
+        return flat_detail::read_value_at<MT>(session_, abs, abs_end);
       }
   };
 

@@ -15,7 +15,7 @@ Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reade
 
 | | [Skompresowany](compressed-format.md) | [Flat](flat-format.md) |
 |--|--------------------------------------|------------------------|
-| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_buffer_reader`, `flat_view`) |
+| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_buffer_reader`, `flat_view` / `flat_map_view`) |
 | Liczby | varint (uvarint/svarint), float sortowalny | fixed LE, float IEEE LE |
 | Odczyt | tylko sekwencyjny | sekwencyjny + random access / in-place (`flat_view`) |
 | Indeks pól | brak (`save_offset` no-op) | sparse checkpointy po polach variable |
@@ -225,13 +225,13 @@ Szczegóły refaktoringu: `TODO.md`.
 
 Pełna specyfikacja: **[flat-format.md](flat-format.md)**. Checklist: [flat-todo.md](flat-todo.md).
 
-Fixed LE, sparse checkpointy (`save_offset` po polach variable), trailer `[format][cps…][format]`, grafy przez `write_rest` (delta = i32 LE).
+Fixed LE, sparse checkpointy (`save_offset` po polach variable), trailer `[format][cps…][format]`, grafy przez `write_rest` (delta = i32 LE). Mapy: SoA (`key_off[N+1]` + values + `val_off` trailer), porządek `memcmp`, `write_map` / `flat_map_view::find`.
 
 | Komponent | Rola |
 |-----------|------|
 | `flat_stream_writer` / `flat_stream_reader` | zapis/odczyt sekwencyjny do `ostream`/`istream` |
 | `flat_buffer_reader` + `FlatSource` | odczyt z ciągłego bufora (`span`; circular później) |
-| `flat_view<T>` / `flat_root` / `flat_root_shared` | meta `get<^^Field>()` / `get<"name">()`; `shared_ptr` → `shared_ptr<flat_view<U>>` |
+| `flat_view<T>` / `flat_map_view` / `flat_root` / `flat_root_shared` | meta `get<^^Field>()` / `get<"name">()`; mapy SoA + BS `find`; `shared_ptr` → `shared_ptr<flat_view<U>>` |
 
 ---
 
@@ -244,7 +244,7 @@ src/serialization/
   serialize.hpp / deserialize.hpp
   stream_reader.hpp / stream_writer.hpp
   circular_buffer_reader.hpp / circular_buffer_writer.hpp
-  flat_encoding.hpp, flat_source.hpp
+  flat_encoding.hpp, flat_source.hpp, flat_bytes_writer.hpp
   flat_stream_writer.hpp / flat_stream_reader.hpp
   flat_buffer_reader.hpp / flat_view.hpp
   debug_writer.hpp

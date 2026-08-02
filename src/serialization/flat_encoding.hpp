@@ -7,6 +7,7 @@
 #include <cstring>
 #include <span>
 #include <type_traits>
+#include <vector>
 
 namespace serialization {
 
@@ -122,6 +123,66 @@ namespace serialization {
       return flat_load_le<std::uint16_t>(src);
     }
     return flat_load_le<std::uint32_t>(src);
+  }
+
+  inline void flat_append_offset_table(std::vector<std::uint8_t>& out,
+      const std::uint32_t* offs, std::size_t count) {
+    std::uint32_t max_off = 0;
+    for(std::size_t i = 0; i < count; ++i) {
+      if(offs[i] > max_off) max_off = offs[i];
+    }
+    const std::size_t width = flat_offset_width(max_off);
+    const std::uint8_t format = flat_pack_format(width);
+    out.push_back(format);
+    for(std::size_t i = 0; i < count; ++i) {
+      std::uint8_t buf[4];
+      flat_store_cp(buf, offs[i], width);
+      out.insert(out.end(), buf, buf + width);
+    }
+  }
+
+  inline void flat_append_offset_trailer(std::vector<std::uint8_t>& out,
+      const std::uint32_t* offs, std::size_t count) {
+    if(count == 0) return;
+    std::uint32_t max_off = 0;
+    for(std::size_t i = 0; i < count; ++i) {
+      if(offs[i] > max_off) max_off = offs[i];
+    }
+    const std::size_t width = flat_offset_width(max_off);
+    const std::uint8_t format = flat_pack_format(width);
+    out.push_back(format);
+    for(std::size_t i = 0; i < count; ++i) {
+      std::uint8_t buf[4];
+      flat_store_cp(buf, offs[i], width);
+      out.insert(out.end(), buf, buf + width);
+    }
+    out.push_back(format);
+  }
+
+  inline std::vector<std::uint32_t> flat_load_offset_table(const std::uint8_t* p,
+      std::size_t count, std::size_t& bytes_consumed) {
+    const std::uint8_t format = p[0];
+    const std::size_t width = flat_unpack_width(format);
+    std::vector<std::uint32_t> offs(count);
+    for(std::size_t i = 0; i < count; ++i) {
+      offs[i] = flat_load_cp(p + 1 + i * width, width);
+    }
+    bytes_consumed = 1 + count * width;
+    return offs;
+  }
+
+  inline std::vector<std::uint32_t> flat_load_offset_trailer_from_end(
+      const std::uint8_t* map_end, std::size_t count) {
+    if(count == 0) return {};
+    const std::uint8_t format = map_end[-1];
+    const std::size_t width = flat_unpack_width(format);
+    const std::size_t trailer = flat_trailer_size(count, width);
+    const std::uint8_t* base = map_end - static_cast<std::ptrdiff_t>(trailer);
+    std::vector<std::uint32_t> offs(count);
+    for(std::size_t i = 0; i < count; ++i) {
+      offs[i] = flat_load_cp(base + 1 + i * width, width);
+    }
+    return offs;
   }
 
   template <typename T>

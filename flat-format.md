@@ -122,9 +122,40 @@ dla j przed F:
 | bool | 1 B |
 | f32/f64 | IEEE LE |
 | string/binary | u32 len + bytes |
-| kontener/mapa | u32 N + elementy (+ trailer) |
+| kontener | u32 N + elementy (+ trailer) |
+| mapa | SoA — patrz niżej (nie generyczna ramka) |
 | UDT | pola reflection (+ trailer) |
 | shared_ptr | i32 delta; ciało w rest |
+
+---
+
+## Mapa (SoA)
+
+Kontrakt: `write_map` / `read_map` (callbacki key/value). Compressed zostaje interleaved; flat używa layoutu poniżej.
+
+Bez `keys_bytes` / `values_bytes`. Porządek wpisów = sort po **`memcmp` zserializowanych kluczy** (nie `operator<` / nie kolejność `std::map`).
+
+```text
+[u32 N]
+Jeśli N == 0: koniec.
+
+Jeśli N > 0:
+  [u8 format_k]              // bits 0–1 → W_k ∈ {1,2,4}
+  [key_off × (N+1)]          // względem startu keys; key_off[N] = sentinel (koniec keys)
+  [keys blob]                // N kluczy, kolejność memcmp, gęsto
+  [values blob]              // N wartości, ta sama kolejność, self-delimiting
+  [u8 format_v]
+  [val_off × N]              // względem startu values
+  [u8 format_v]              // duplikat — lokalizacja od map_end
+```
+
+- Długość klucza `i`: `key_off[i+1] - key_off[i]`.
+- `values_start` = `keys_base + key_off[N]`.
+- Sekwencyjnie: offs → N× key → N× value → trailer `val_off`.
+- `find` (`flat_map_view`): BS po kluczach; `val_off` z trailera od końca mapy.
+- Jako pole variable rodzica: jedno `save_offset()` po całej mapie (bez `begin_frame` wokół par).
+
+Zapis: staging bajtów kluczy + deskryptory → sort → emit SoA (wartości serializowane raz, w kolejności sortu).
 
 ---
 
@@ -134,7 +165,7 @@ dla j przed F:
 |-----------|------|
 | `flat_stream_writer` / `flat_stream_reader` | ostream / istream |
 | `flat_buffer_reader` + `FlatSource` | span / przyszły circular |
-| `flat_view` | meta `get<>` |
+| `flat_view` | meta `get<>` / `flat_map_view` |
 
 ---
 

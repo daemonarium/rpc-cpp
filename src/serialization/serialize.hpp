@@ -30,13 +30,9 @@ namespace serialization {
   template <class T, Writer W>
   requires(Map<T> && !Binary<T> && Writer<W>)  
   void serialize(W& writer, const T& value) {
-    writer.begin_frame();
-    writer.write_length(value.size());    
-    for (const auto& element : value) {
-      serialize(writer, element.first);
-      serialize(writer, element.second);
-    }
-    writer.end_frame();
+    writer.write_map(value,
+      [&](auto& w, const typename T::key_type& k) { serialize(w, k); },
+      [&](auto& w, const typename T::mapped_type& v) { serialize(w, v); });
     writer.save_offset();
   }
 

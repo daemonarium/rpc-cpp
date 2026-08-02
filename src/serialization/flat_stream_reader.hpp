@@ -110,6 +110,45 @@ namespace serialization {
         value = length;
       }
 
+      template <class Map, class KeyCb, class ValCb>
+      void read_map(Map& map, KeyCb&& key_cb, ValCb&& val_cb) {
+        // Absorb nested save_offset calls without consuming a frame trailer.
+        frames_.push_back(Frame{ 0 });
+        std::uint32_t n = 0;
+        read_u32(n);
+        if(n == 0) {
+          frames_.pop_back();
+          return;
+        }
+        std::uint8_t format_k = 0;
+        read_u8(format_k);
+        const std::size_t wk = flat_unpack_width(format_k);
+        stream_.ignore(static_cast<std::streamsize>((n + 1) * wk));
+
+        std::vector<typename Map::key_type> keys;
+        keys.reserve(n);
+        for(std::uint32_t i = 0; i < n; ++i) {
+          typename Map::key_type key{};
+          key_cb(*this, key);
+          keys.push_back(std::move(key));
+        }
+        for(std::uint32_t i = 0; i < n; ++i) {
+          typename Map::mapped_type item{};
+          val_cb(*this, item);
+          map.insert(std::make_pair(std::move(keys[i]), std::move(item)));
+        }
+        std::uint8_t format_v = 0;
+        read_u8(format_v);
+        const std::size_t wv = flat_unpack_width(format_v);
+        stream_.ignore(static_cast<std::streamsize>(n * wv));
+        std::uint8_t format_v_end = 0;
+        read_u8(format_v_end);
+        if(format_v_end != format_v) {
+          throw std::runtime_error("flat map value trailer format mismatch");
+        }
+        frames_.pop_back();
+      }
+
       template <typename T>
       void read_typed(std::shared_ptr<T>& data) {
         std::uint32_t index = 0;

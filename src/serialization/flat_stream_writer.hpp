@@ -2,6 +2,7 @@
 
 #include "writer.hpp"
 #include "flat_encoding.hpp"
+#include "flat_bytes_writer.hpp"
 #include "serialize.hpp"
 
 #include <algorithm>
@@ -99,6 +100,15 @@ namespace serialization {
 
       void write_length(std::size_t length) {
         write_u32(static_cast<std::uint32_t>(length));
+      }
+
+      template <class Map, class KeyCb, class ValCb>
+      void write_map(const Map& map, KeyCb&& key_cb, ValCb&& val_cb) {
+        std::vector<std::uint8_t> payload;
+        flat_append_map_soa(payload, map, std::forward<KeyCb>(key_cb), std::forward<ValCb>(val_cb));
+        if(!payload.empty()) {
+          write_raw(payload.data(), payload.size());
+        }
       }
 
       template <typename T>

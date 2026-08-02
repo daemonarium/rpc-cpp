@@ -17,10 +17,13 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 - [x] `src/serialization/flat_source.hpp`
 - [x] `src/serialization/flat_buffer_reader.hpp`
 - [x] `src/serialization/flat_view.hpp`
+- [x] `src/serialization/flat_bytes_writer.hpp`
 - [x] `src/test/serialization_flat_ut.cpp`
 - [x] CMake: target + `add_test`
 - [x] `reader.hpp` / `deserialize.hpp` / no-op `save_offset` w stream/cb readers
 - [x] README + status w flat-format.md
+- [x] `write_map` / `read_map` (compressed interleaved + flat SoA)
+- [x] `flat_map_view` + map get w `flat_view`
 
 ## Fazy
 
@@ -55,6 +58,12 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 - [x] shared_ptr → shared_ptr\<flat_view\<T\>\>
 - [x] UT
 
+### 8. Mapa SoA
+- [x] layout: key_off[N+1] sentinel, values, val_off trailer
+- [x] `write_map` / `read_map` (flat + compressed)
+- [x] `flat_map_view` BS `find` (memcmp order)
+- [x] UT (empty, typy kluczy, UDT, nested, gaps)
+
 ### 7. Docs
 - [x] odhaczyć ten plik
 - [x] README
@@ -62,5 +71,5 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 ## Później
 
 - [ ] `circular_buffer` jako `FlatSource`
-- [ ] `view.name()` (class injection / codegen)
-- [ ] map get w `flat_view`
+- [ ] `view.name()` codegen / injection
+- [ ] `write_sequence` (reserve offsetów kontenerów)

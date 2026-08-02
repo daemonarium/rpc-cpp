@@ -73,6 +73,18 @@ namespace serialization {
       void write_length(std::size_t length) {
         stream_ << std::string(indent_, ' ') << "writeLength " << length << std::endl;
       }
+
+      template <class Map, class KeyCb, class ValCb>
+      void write_map(const Map& map, KeyCb&& key_cb, ValCb&& val_cb) {
+        stream_ << std::string(indent_, ' ') << "writeMap size=" << map.size() << std::endl;
+        indent_ += 2;
+        for(const auto& element : map) {
+          key_cb(*this, element.first);
+          val_cb(*this, element.second);
+        }
+        indent_ -= 2;
+      }
+
       void save_offset() {
         stream_ << std::string(indent_, ' ') << "saveOffset" << std::endl;
       }

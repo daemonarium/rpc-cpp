@@ -20,9 +20,26 @@ using namespace serialization;
 
 namespace {
 
+  enum class Color : std::uint64_t {
+    Red = 1,
+    Green = 2,
+    Blue = 3,
+  };
+
   struct Skill {
     std::string name;
     std::int32_t level = 0;
+  };
+
+  struct OnlyScalars {
+    std::int32_t a = 0;
+    std::int32_t b = 0;
+    bool flag = false;
+  };
+
+  struct WithEnum {
+    Color color = Color::Red;
+    std::string label;
   };
 
   struct Person {
@@ -32,6 +49,13 @@ namespace {
     std::vector<std::int32_t> scores;
     std::vector<std::string> tags;
     std::vector<std::shared_ptr<Person>> friends;
+    std::map<std::string, std::int32_t> attrs;
+  };
+
+  struct WithMaps {
+    std::map<std::string, std::int32_t> si;
+    std::map<std::int32_t, std::string> is;
+    std::map<std::string, Skill> skills;
   };
 
   template <typename T>
@@ -65,6 +89,17 @@ namespace {
     return out;
   }
 
+  template <typename T>
+  std::size_t measure_root_frame(const std::shared_ptr<std::vector<std::uint8_t>>& storage) {
+    std::string chunk(reinterpret_cast<const char*>(storage->data()), storage->size());
+    std::istringstream iss(chunk);
+    flat_stream_reader sr(iss);
+    T tmp{};
+    deserialize(sr, tmp);
+    std::streamoff told = iss.tellg();
+    return told < 0 ? storage->size() : static_cast<std::size_t>(told);
+  }
+
 }
 
 int main() {
@@ -90,9 +125,26 @@ int main() {
   "flat vector fixed no trailer"_test = [] {
     std::vector<std::int32_t> v{1, 2, 3, 4, 5};
     auto bytes = flat_bytes(v);
-    // length u32 + 5*i32, K=0 => no trailer
     expect(eq(bytes.size(), std::size_t{4 + 5 * 4}));
     expect(flat_roundtrip(v) == v);
+  };
+
+  "flat empty vector"_test = [] {
+    std::vector<std::int32_t> empty_fixed;
+    expect(static_cast<bool>(flat_roundtrip(empty_fixed) == empty_fixed));
+    expect(eq(flat_bytes(empty_fixed).size(), std::size_t{4}));
+
+    std::vector<std::string> empty_var;
+    expect(static_cast<bool>(flat_roundtrip(empty_var) == empty_var));
+
+    auto storage = std::make_shared<std::vector<std::uint8_t>>();
+    {
+      std::string s = flat_bytes(empty_fixed);
+      storage->assign(s.begin(), s.end());
+    }
+    auto session = std::make_shared<flat_session>(storage);
+    flat_vector_view<std::int32_t> view(session, 0, storage->size());
+    expect(eq(view.size(), std::size_t{0}));
   };
 
   "flat udt nested"_test = [] {
@@ -111,9 +163,162 @@ int main() {
     expect(out.tags == p.tags);
   };
 
-  "flat map"_test = [] {
-    std::map<std::string, std::int32_t> m{{"x", 1}, {"y", 2}};
-    expect(flat_roundtrip(m) == m);
+  "flat udt scalars only no trailer"_test = [] {
+    OnlyScalars o{7, -3, true};
+    auto bytes = flat_bytes(o);
+    expect(eq(bytes.size(), std::size_t{4 + 4 + 1}));
+    auto out = flat_roundtrip(o);
+    expect(eq(out.a, 7));
+    expect(eq(out.b, -3));
+    expect(eq(out.flag, true));
+
+    auto storage = std::make_shared<std::vector<std::uint8_t>>();
+    storage->assign(bytes.begin(), bytes.end());
+    auto session = std::make_shared<flat_session>(storage);
+    flat_view<OnlyScalars> view(session, 0, storage->size());
+    expect(eq(view.get<^^OnlyScalars::a>(), 7));
+    expect(eq(view.get<"b">(), -3));
+  };
+
+  "flat enum and empty string field"_test = [] {
+    WithEnum w{Color::Blue, ""};
+    auto out = flat_roundtrip(w);
+    expect(out.color == Color::Blue);
+    expect(eq(out.label, std::string{""}));
+
+    auto storage = std::make_shared<std::vector<std::uint8_t>>();
+    {
+      std::string s = flat_bytes(w);
+      storage->assign(s.begin(), s.end());
+    }
+    auto session = std::make_shared<flat_session>(storage);
+    flat_view<WithEnum> view(session, 0, measure_root_frame<WithEnum>(storage));
+    expect(view.get<^^WithEnum::color>() == Color::Blue);
+    expect(eq(std::string(view.get<"label">()), std::string{""}));
+  };
+
+  "flat map empty"_test = [] {
+    std::map<std::string, std::int32_t> empty;
+    auto bytes = flat_bytes(empty);
+    expect(eq(bytes.size(), std::size_t{4}));
+    expect(static_cast<bool>(flat_roundtrip(empty) == empty));
+  };
+
+  "flat map types"_test = [] {
+    std::map<std::string, std::int32_t> si{{"x", 1}, {"y", 2}};
+    expect(static_cast<bool>(flat_roundtrip(si) == si));
+
+    std::map<std::int32_t, std::string> is{{1, "a"}, {2, "bb"}};
+    expect(static_cast<bool>(flat_roundtrip(is) == is));
+
+    std::map<std::string, std::string> ss{{"k", "v"}, {"aa", "bb"}};
+    expect(static_cast<bool>(flat_roundtrip(ss) == ss));
+
+    std::map<std::int32_t, std::int32_t> ii{{3, 4}, {1, 2}};
+    expect(static_cast<bool>(flat_roundtrip(ii) == ii));
+
+    std::map<std::string, Skill> skills{{"c++", Skill{"c++", 9}}, {"go", Skill{"go", 3}}};
+    auto skills_out = flat_roundtrip(skills);
+    expect(eq(skills_out.size(), std::size_t{2}));
+    expect(eq(skills_out["c++"].level, 9));
+    expect(eq(skills_out["go"].name, std::string{"go"}));
+  };
+
+  "flat map in udt"_test = [] {
+    WithMaps m;
+    m.si = {{"a", 1}, {"b", 2}};
+    m.is = {{10, "ten"}};
+    m.skills = {{"math", Skill{"math", 5}}};
+    auto out = flat_roundtrip(m);
+    expect(static_cast<bool>(out.si == m.si));
+    expect(static_cast<bool>(out.is == m.is));
+    expect(eq(out.skills["math"].level, 5));
+    expect(static_cast<bool>(flat_buffer_roundtrip(m).si == m.si));
+  };
+
+  "flat map memcmp order find"_test = [] {
+    // length-prefix memcmp order: "b" (len=1) before "aa" (len=2)
+    std::map<std::string, std::int32_t> m{{"aa", 2}, {"b", 1}};
+    expect(static_cast<bool>(flat_roundtrip(m) == m));
+
+    auto storage = std::make_shared<std::vector<std::uint8_t>>();
+    {
+      std::string s = flat_bytes(m);
+      storage->assign(s.begin(), s.end());
+    }
+    auto session = std::make_shared<flat_session>(storage);
+    flat_map_view<std::string, std::int32_t> view(session, 0, storage->size());
+    expect(eq(view.size(), std::size_t{2}));
+    expect(eq(view.find(std::string{"b"}), 1));
+    expect(eq(view.find(std::string{"aa"}), 2));
+    expect(eq(view["b"], 1));
+    expect(!view.contains(std::string{"zzz"}));
+    bool threw = false;
+    try {
+      (void)view.find(std::string{"zzz"});
+    } catch(...) {
+      threw = true;
+    }
+    expect(threw);
+  };
+
+  "flat_map_view in udt get"_test = [] {
+    Person p;
+    p.name = "Eve";
+    p.age = 42;
+    p.attrs = {{"hp", 100}, {"mp", 50}};
+
+    auto storage = std::make_shared<std::vector<std::uint8_t>>();
+    {
+      std::string s = flat_bytes(p);
+      storage->assign(s.begin(), s.end());
+    }
+    auto session = std::make_shared<flat_session>(storage);
+    flat_view<Person> view(session, 0, measure_root_frame<Person>(storage));
+    auto attrs = view.get<^^Person::attrs>();
+    expect(eq(attrs.size(), std::size_t{2}));
+    expect(eq(attrs.find(std::string{"hp"}), 100));
+    expect(eq(attrs["mp"], 50));
+    expect(!attrs.contains(std::string{"xp"}));
+  };
+
+  "flat map int key string value view"_test = [] {
+    std::map<std::int32_t, std::string> m{{2, "two"}, {1, "one"}};
+    auto storage = std::make_shared<std::vector<std::uint8_t>>();
+    {
+      std::string s = flat_bytes(m);
+      storage->assign(s.begin(), s.end());
+    }
+    auto session = std::make_shared<flat_session>(storage);
+    flat_map_view<std::int32_t, std::string> view(session, 0, storage->size());
+    expect(eq(std::string(view.find(1)), std::string{"one"}));
+    expect(eq(std::string(view[2]), std::string{"two"}));
+  };
+
+  "flat map W_k smoke"_test = [] {
+    std::map<std::string, std::int32_t> m;
+    for(int i = 0; i < 40; ++i) {
+      m[std::string(20, static_cast<char>('a' + (i % 26))) + std::to_string(i)] = i;
+    }
+    expect(static_cast<bool>(flat_roundtrip(m) == m));
+    auto bytes = flat_bytes(m);
+    expect(bytes.size() > 256u);
+  };
+
+  "flat map nested with vector"_test = [] {
+    std::map<std::string, std::vector<std::int32_t>> m{
+      {"a", {1, 2}},
+      {"b", {3}}
+    };
+    auto out = flat_roundtrip(m);
+    expect(static_cast<bool>(out["a"] == m["a"]));
+    expect(static_cast<bool>(out["b"] == m["b"]));
+
+    std::vector<std::map<std::string, std::int32_t>> v{
+      {{"x", 1}},
+      {{"y", 2}, {"z", 3}}
+    };
+    expect(static_cast<bool>(flat_roundtrip(v) == v));
   };
 
   "flat buffer reader"_test = [] {
@@ -175,17 +380,8 @@ int main() {
       storage->assign(s.begin(), s.end());
     }
 
-    // Measure root frame (no rest for this value without pending pointers)
-    std::string chunk(reinterpret_cast<const char*>(storage->data()), storage->size());
-    std::istringstream iss(chunk);
-    flat_stream_reader sr(iss);
-    Person tmp{};
-    deserialize(sr, tmp);
-    std::streamoff told = iss.tellg();
-    std::size_t frame_end = told < 0 ? storage->size() : static_cast<std::size_t>(told);
-
     auto session = std::make_shared<flat_session>(storage);
-    flat_view<Person> view(session, 0, frame_end);
+    flat_view<Person> view(session, 0, measure_root_frame<Person>(storage));
 
     expect(eq(std::string(view.get<^^Person::name>()), std::string{"Eve"}));
     expect(eq(view.get<^^Person::age>(), 42));

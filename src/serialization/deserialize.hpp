@@ -31,17 +31,9 @@ namespace serialization {
   template <Map T, Reader R>
   requires(Reader<R> && Map<T>)
   void deserialize(R& reader, T& value) {
-    reader.enter_frame();
-    std::size_t length;
-    reader.read_length(length);
-    for (std::size_t i = 0; i < length; ++i) {
-      typename T::key_type key;
-      typename T::mapped_type item_value;
-      deserialize(reader, key);
-      deserialize(reader, item_value);
-      value.insert(std::make_pair(key, item_value));
-    }
-    reader.exit_frame();
+    reader.read_map(value,
+      [&](auto& r, typename T::key_type& k) { deserialize(r, k); },
+      [&](auto& r, typename T::mapped_type& v) { deserialize(r, v); });
     reader.save_offset();
   }
 
