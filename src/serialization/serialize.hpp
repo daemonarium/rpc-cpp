@@ -65,25 +65,25 @@ namespace serialization {
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 1) && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 1) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i8(static_cast<std::int8_t>(value));
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 2) && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 2) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i16(static_cast<std::int16_t>(value));
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 4) && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 4) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i32(static_cast<std::int32_t>(value));
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 8) && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 8) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i64(value);
   }

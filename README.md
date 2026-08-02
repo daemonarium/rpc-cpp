@@ -15,12 +15,12 @@ Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reade
 
 | | [Skompresowany](compressed-format.md) | [Flat](flat-format.md) |
 |--|--------------------------------------|------------------------|
-| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | specyfikacja (haki API gotowe) |
+| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_buffer_reader`, `flat_view`) |
 | Liczby | varint (uvarint/svarint), float sortowalny | fixed LE, float IEEE LE |
-| Odczyt | tylko sekwencyjny | sekwencyjny + random access / in-place |
+| Odczyt | tylko sekwencyjny | sekwencyjny + random access / in-place (`flat_view`) |
 | Indeks pól | brak (`save_offset` no-op) | sparse checkpointy po polach variable |
 | Rozmiar na medium | mniejszy (kompresja varint) | zwykle większy, szybszy parse |
-| Grafy `shared_ptr` | tak | poza scope v1 |
+| Grafy `shared_ptr` | tak | tak (`write_rest` / `flat_root_shared` → `shared_ptr<flat_view<T>>`) |
 | Typowe użycie | RPC, transfer, sortowalne klucze/DB | mmap, hot-path read, duże message bez pełnej materializacji |
 
 Szczegóły encodingu: **[compressed-format.md](compressed-format.md)**, **[flat-format.md](flat-format.md)**.
@@ -41,11 +41,11 @@ Szczegóły encodingu: **[compressed-format.md](compressed-format.md)**, **[flat
                              │ concept Writer / Reader
 ┌────────────────────────────▼────────────────────────────────┐
 │  writer.hpp / reader.hpp  (kontrakt + abstrakcyjne stuby)   │
-└──────┬──────────────┬──────────────┬────────────────────────┘
-       │              │              │
- stream_*      circular_buffer_*   debug_writer
- (ostream/       (peek/poke        (tekstowy
-  istream)        na ring buffer)   dump do konsoli)
+└──────┬──────────────┬──────────────┬──────────────┬──────────┘
+       │              │              │              │
+ stream_*      circular_buffer_*   flat_*        debug_writer
+ (compressed)   (compressed)     (flat LE +      (tekstowy
+                                  flat_view)      dump)
 ```
 
 Dodatkowe elementy:
@@ -223,32 +223,35 @@ Szczegóły refaktoringu: `TODO.md`.
 
 ## Format flat — skrót
 
-Pełna specyfikacja: **[flat-format.md](flat-format.md)**.
+Pełna specyfikacja: **[flat-format.md](flat-format.md)**. Checklist: [flat-todo.md](flat-todo.md).
 
-Fixed LE, sparse checkpointy (`save_offset` po polach variable), trailer przy `end_frame`, odczyt sekwencyjny i random access na ciągłym buforze. Haki w kontrakcie:
+Fixed LE, sparse checkpointy (`save_offset` po polach variable), trailer `[format][cps…][format]`, grafy przez `write_rest` (delta = i32 LE).
 
-| Hak | Stream/circular dziś | Flat |
-|-----|----------------------|------|
-| `begin_frame` / `end_frame` | no-op | ramka + zapis trailera offsetów |
-| `save_offset` | no-op | checkpoint po polu variable |
-| `is_indexed()` | `false` | `true` |
-| `enter_indexed_frame` | throw | skok do wycinka childa |
+| Komponent | Rola |
+|-----------|------|
+| `flat_stream_writer` / `flat_stream_reader` | zapis/odczyt sekwencyjny do `ostream`/`istream` |
+| `flat_buffer_reader` + `FlatSource` | odczyt z ciągłego bufora (`span`; circular później) |
+| `flat_view<T>` / `flat_root` / `flat_root_shared` | meta `get<^^Field>()` / `get<"name">()`; `shared_ptr` → `shared_ptr<flat_view<U>>` |
 
 ---
 
 ## Pliki kluczowe (serializacja)
 
 ```
-README.md, compressed-format.md, flat-format.md
+README.md, compressed-format.md, flat-format.md, flat-todo.md
 src/serialization/
-  reader.hpp / writer.hpp          # kontrakt
-  serialize.hpp / deserialize.hpp  # mapowanie typów (wspólne)
+  reader.hpp / writer.hpp
+  serialize.hpp / deserialize.hpp
   stream_reader.hpp / stream_writer.hpp
   circular_buffer_reader.hpp / circular_buffer_writer.hpp
+  flat_encoding.hpp, flat_source.hpp
+  flat_stream_writer.hpp / flat_stream_reader.hpp
+  flat_buffer_reader.hpp / flat_view.hpp
   debug_writer.hpp
   annotations.hpp, type_concepts.hpp, type_registry.hpp
-  rpc*.hpp, socket_*.hpp           # warstwa RPC
-src/io/circular_buffer.h           # C ring buffer
+  rpc*.hpp, socket_*.hpp
+src/io/circular_buffer.h
+src/test/serialization_flat_ut.cpp
 ```
 
 Przykłady: `src/examples/serialize_people.cpp`, `serialize_game.cpp`, `circular_buffer_serialization.test.cpp`.

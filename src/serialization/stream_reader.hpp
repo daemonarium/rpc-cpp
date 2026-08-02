@@ -33,6 +33,9 @@ namespace serialization {
         debug("exit_frame");
         // ignore
       }
+      void save_offset() {
+        // no-op for compressed stream format
+      }
       void enter_indexed_frame(size_t id) { throw std::runtime_error("Not indexed"); }
 
       void read_u64(std::uint64_t& value) {

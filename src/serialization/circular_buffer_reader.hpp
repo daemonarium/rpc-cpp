@@ -42,6 +42,10 @@ namespace serialization {
         // no-op for circular buffer backend
       }
 
+      void save_offset() {
+        // no-op for compressed circular buffer format
+      }
+
       void enter_indexed_frame(size_t id) {
         throw std::runtime_error("Not indexed");
       }
