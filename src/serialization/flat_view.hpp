@@ -5,6 +5,7 @@
 #include "flat_encoding.hpp"
 #include "flat_bytes_writer.hpp"
 #include "flat_source.hpp"
+#include "flat_buffer_reader.hpp"
 #include "flat_stream_reader.hpp"
 #include "meta_expand.hpp"
 #include "serialize.hpp"
@@ -51,8 +52,25 @@ namespace serialization {
       explicit flat_session(std::shared_ptr<std::vector<std::uint8_t>> storage)
         : storage_(std::move(storage)), source_(*storage_) {}
 
+      // Non-owning view into contiguous external memory (e.g. circular ring region).
+      // Caller must keep memory valid for the session lifetime (until skip_read).
+      explicit flat_session(std::span<const std::uint8_t> external)
+        : storage_(nullptr), source_(external) {}
+
       span_flat_source source() const { return source_; }
-      const std::vector<std::uint8_t>& bytes() const { return *storage_; }
+
+      std::size_t size() const { return source_.size(); }
+
+      const std::uint8_t* data_at(std::size_t abs, std::size_t len = 1) const {
+        const std::uint8_t* p = source_.try_ptr(abs, len);
+        if(!p) {
+          throw std::runtime_error("flat_session::data_at out of range");
+        }
+        return p;
+      }
+
+      // Owned storage when materialized / vector-backed; nullptr for external span.
+      const std::shared_ptr<std::vector<std::uint8_t>>& storage() const { return storage_; }
 
       std::vector<std::shared_ptr<void>>& later_slots() { return later_slots_; }
       std::vector<std::shared_ptr<void>>& resolved() { return resolved_; }
@@ -161,14 +179,16 @@ namespace serialization {
 
     template <class T>
     std::size_t measure_frame(std::span<const std::uint8_t> bytes) {
-      std::string chunk(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-      std::istringstream iss(chunk);
-      flat_stream_reader sr(iss);
-      sr.set_skip_pointers(true);
+      return measure_frame<T>(span_flat_source(bytes), 0, bytes.size());
+    }
+
+    template <class T, FlatSource S>
+    std::size_t measure_frame(const S& source, std::size_t start, std::size_t end_limit) {
+      flat_buffer_reader<S> reader(source, start, end_limit);
+      reader.set_skip_pointers(true);
       T tmp{};
-      deserialize(sr, tmp);
-      std::streamoff told = iss.tellg();
-      return told < 0 ? bytes.size() : static_cast<std::size_t>(told);
+      deserialize(reader, tmp);
+      return reader.cursor() - start;
     }
 
   } // namespace flat_detail
@@ -203,8 +223,8 @@ namespace serialization {
             std::uint8_t buf[4];
             session_->source().peek(abs_begin, buf, 4);
             std::uint32_t len = flat_load_le<std::uint32_t>(buf);
-            const auto& bytes = session_->bytes();
-            return std::string_view(reinterpret_cast<const char*>(bytes.data() + abs_begin + 4), len);
+            const std::uint8_t* p = session_->data_at(abs_begin + 4, len);
+            return std::string_view(reinterpret_cast<const char*>(p), len);
           } else {
             return flat_view<E>(session_, abs_begin, abs_end);
           }
@@ -237,13 +257,14 @@ namespace serialization {
         std::uint8_t buf[4];
         session->source().peek(abs, buf, 4);
         std::uint32_t len = flat_load_le<std::uint32_t>(buf);
-        const auto& bytes = session->bytes();
-        return std::string_view(reinterpret_cast<const char*>(bytes.data() + abs + 4), len);
+        const std::uint8_t* p = session->data_at(abs + 4, len);
+        return std::string_view(reinterpret_cast<const char*>(p), len);
       } else if constexpr (Binary<MT>) {
         std::uint8_t buf[4];
         session->source().peek(abs, buf, 4);
         std::uint32_t len = flat_load_le<std::uint32_t>(buf);
-        return std::span<const std::uint8_t>(session->bytes().data() + abs + 4, len);
+        const std::uint8_t* p = session->data_at(abs + 4, len);
+        return std::span<const std::uint8_t>(p, len);
       } else if constexpr (ContainerButNotString<MT> && !Binary<MT>) {
         using Elem = typename MT::value_type;
         return flat_vector_view<Elem>(session, abs, abs_end);
@@ -364,7 +385,7 @@ namespace serialization {
         std::vector<std::uint8_t> needle;
         flat_bytes_writer w(needle);
         serialize(w, key);
-        const auto& bytes = session_->bytes();
+        const std::uint8_t* bytes_base = session_->data_at(keys_base_, key_offs_[size_]);
         std::size_t lo = 0;
         std::size_t hi = size_;
         while(lo < hi) {
@@ -372,7 +393,7 @@ namespace serialization {
           const std::uint32_t off = key_offs_[mid];
           const std::uint32_t len = key_offs_[mid + 1] - off;
           const std::size_t cmp_len = std::min<std::size_t>(len, needle.size());
-          const int cmp = std::memcmp(bytes.data() + keys_base_ + off, needle.data(), cmp_len);
+          const int cmp = std::memcmp(bytes_base + off, needle.data(), cmp_len);
           if(cmp < 0 || (cmp == 0 && len < needle.size())) {
             lo = mid + 1;
           } else if(cmp > 0 || (cmp == 0 && len > needle.size())) {
@@ -581,7 +602,7 @@ namespace serialization {
   template <class T>
   flat_view<T> flat_root(std::shared_ptr<std::vector<std::uint8_t>> storage) {
     auto session = std::make_shared<flat_session>(std::move(storage));
-    return flat_view<T>(session, 0, session->bytes().size());
+    return flat_view<T>(session, 0, session->size());
   }
 
   template <class T>
@@ -596,53 +617,112 @@ namespace serialization {
   }
 
   template <class T>
+  flat_view<T> flat_root(std::span<const std::uint8_t> external) {
+    auto session = std::make_shared<flat_session>(external);
+    return flat_view<T>(session, 0, session->size());
+  }
+
+  namespace flat_detail {
+
+    template <class T>
+    std::shared_ptr<flat_view<T>> flat_root_shared_on_session(
+        std::shared_ptr<flat_session> session, std::size_t message_len) {
+      if(message_len < 4) {
+        throw std::runtime_error("flat_root_shared: buffer too small");
+      }
+      std::uint8_t dbuf[4];
+      flat_load_bytes(session->source(), 0, dbuf, 4);
+      std::int32_t root_delta = flat_load_le<std::int32_t>(dbuf);
+      if(root_delta == 0) {
+        return nullptr;
+      }
+      if(root_delta < 0) {
+        throw std::runtime_error("flat_root_shared: unexpected negative root delta");
+      }
+
+      std::vector<std::shared_ptr<flat_view<T>>> pool;
+      std::size_t cursor = 4;
+      while(cursor + 4 <= message_len) {
+        cursor += 4;
+        if(cursor >= message_len) break;
+        std::size_t frame_start = cursor;
+        std::size_t frame_size = measure_frame<T>(session->source(), frame_start, message_len);
+        std::size_t frame_end = frame_start + frame_size;
+        pool.push_back(std::shared_ptr<flat_view<T>>(new flat_view<T>(session, frame_start, frame_end)));
+        cursor = frame_end;
+      }
+      if(pool.empty()) {
+        throw std::runtime_error("flat_root_shared: no frames");
+      }
+
+      std::size_t pool_i = 0;
+      std::size_t root_i = static_cast<std::size_t>(root_delta - 1);
+      while(session->later_slots().size() <= root_i) {
+        session->later_slots().push_back(nullptr);
+      }
+      if(!session->later_slots()[root_i]) {
+        session->later_slots()[root_i] = pool[pool_i++];
+      }
+      auto root = std::static_pointer_cast<flat_view<T>>(session->later_slots()[root_i]);
+
+      while(!session->later_slots().empty()) {
+        auto cur = std::static_pointer_cast<flat_view<T>>(session->later_slots().front());
+        cur->bind_pointers(pool, pool_i);
+        session->later_slots().erase(session->later_slots().begin());
+        session->resolved().push_back(cur);
+      }
+
+      return root;
+    }
+
+  } // namespace flat_detail
+
+  template <class T>
   std::shared_ptr<flat_view<T>> flat_root_shared(std::shared_ptr<std::vector<std::uint8_t>> storage) {
     auto session = std::make_shared<flat_session>(storage);
-    if(storage->size() < 4) {
-      throw std::runtime_error("flat_root_shared: buffer too small");
-    }
-    std::int32_t root_delta = flat_load_le<std::int32_t>(storage->data());
-    if(root_delta == 0) {
-      return nullptr;
-    }
-    if(root_delta < 0) {
-      throw std::runtime_error("flat_root_shared: unexpected negative root delta");
-    }
+    return flat_detail::flat_root_shared_on_session<T>(session, session->size());
+  }
 
-    std::vector<std::shared_ptr<flat_view<T>>> pool;
-    std::size_t cursor = 4;
-    while(cursor + 4 <= storage->size()) {
-      cursor += 4;
-      if(cursor >= storage->size()) break;
-      std::size_t frame_start = cursor;
-      std::size_t frame_size = flat_detail::measure_frame<T>(
-        std::span<const std::uint8_t>(storage->data() + frame_start, storage->size() - frame_start));
-      std::size_t frame_end = frame_start + frame_size;
-      pool.push_back(std::shared_ptr<flat_view<T>>(new flat_view<T>(session, frame_start, frame_end)));
-      cursor = frame_end;
+  template <class T>
+  flat_view<T> flat_root_circular(struct circular_buffer* buffer, std::size_t frame_len) {
+    if(!buffer) {
+      throw std::runtime_error("flat_root_circular: null buffer");
     }
-    if(pool.empty()) {
-      throw std::runtime_error("flat_root_shared: no frames");
+    if(frame_len > circular_buffer_readable_bytes(buffer)) {
+      throw std::runtime_error("flat_root_circular: frame_len exceeds readable");
     }
+    if(circular_buffer_region_contiguous(buffer, 0, frame_len)) {
+      const char* ptr = nullptr;
+      if(circular_buffer_try_contiguous_ptr(buffer, 0, frame_len, &ptr) != frame_len) {
+        throw std::runtime_error("flat_root_circular: try_ptr failed");
+      }
+      return flat_root<T>(std::span<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(ptr), frame_len));
+    }
+    auto bytes = flat_peek_range(buffer, 0, frame_len);
+    return flat_root<T>(std::move(bytes));
+  }
 
-    std::size_t pool_i = 0;
-    std::size_t root_i = static_cast<std::size_t>(root_delta - 1);
-    while(session->later_slots().size() <= root_i) {
-      session->later_slots().push_back(nullptr);
+  template <class T>
+  std::shared_ptr<flat_view<T>> flat_root_shared_circular(
+      struct circular_buffer* buffer, std::size_t message_len) {
+    if(!buffer) {
+      throw std::runtime_error("flat_root_shared_circular: null buffer");
     }
-    if(!session->later_slots()[root_i]) {
-      session->later_slots()[root_i] = pool[pool_i++];
+    if(message_len > circular_buffer_readable_bytes(buffer)) {
+      throw std::runtime_error("flat_root_shared_circular: message_len exceeds readable");
     }
-    auto root = std::static_pointer_cast<flat_view<T>>(session->later_slots()[root_i]);
-
-    while(!session->later_slots().empty()) {
-      auto cur = std::static_pointer_cast<flat_view<T>>(session->later_slots().front());
-      cur->bind_pointers(pool, pool_i);
-      session->later_slots().erase(session->later_slots().begin());
-      session->resolved().push_back(cur);
+    if(circular_buffer_region_contiguous(buffer, 0, message_len)) {
+      const char* ptr = nullptr;
+      if(circular_buffer_try_contiguous_ptr(buffer, 0, message_len, &ptr) != message_len) {
+        throw std::runtime_error("flat_root_shared_circular: try_ptr failed");
+      }
+      auto session = std::make_shared<flat_session>(std::span<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(ptr), message_len));
+      return flat_detail::flat_root_shared_on_session<T>(session, message_len);
     }
-
-    return root;
+    auto bytes = flat_peek_range(buffer, 0, message_len);
+    return flat_root_shared<T>(std::make_shared<std::vector<std::uint8_t>>(std::move(bytes)));
   }
 
 } // namespace serialization

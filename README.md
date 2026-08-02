@@ -15,7 +15,7 @@ Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reade
 
 | | [Skompresowany](compressed-format.md) | [Flat](flat-format.md) |
 |--|--------------------------------------|------------------------|
-| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_buffer_reader`, `flat_view` / `flat_map_view`) |
+| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_buffer_reader`, `flat_view` / circular FlatSource) |
 | Liczby | varint (uvarint/svarint), float sortowalny | fixed LE, float IEEE LE |
 | Odczyt | tylko sekwencyjny | sekwencyjny + random access / in-place (`flat_view`) |
 | Indeks pól | brak (`save_offset` no-op) | sparse checkpointy po polach variable |
@@ -230,8 +230,9 @@ Fixed LE, sparse checkpointy (`save_offset` po polach variable), trailer `[forma
 | Komponent | Rola |
 |-----------|------|
 | `flat_stream_writer` / `flat_stream_reader` | zapis/odczyt sekwencyjny do `ostream`/`istream` |
-| `flat_buffer_reader` + `FlatSource` | odczyt z ciągłego bufora (`span`; circular później) |
+| `flat_buffer_reader` + `FlatSource` | `span_flat_source` / `circular_flat_source` (peek, `get_segments`, `try_ptr`; szew OK) |
 | `flat_view<T>` / `flat_map_view` / `flat_root` / `flat_root_shared` | meta `get<^^Field>()` / `get<"name">()`; mapy SoA + BS `find`; `shared_ptr` → `shared_ptr<flat_view<U>>` |
+| `flat_root_circular` / `flat_root_shared_circular` | contig → zero-copy span w pierścieniu; wrap → materialize; views do `skip_read` |
 
 ---
 
@@ -252,6 +253,8 @@ src/serialization/
   rpc*.hpp, socket_*.hpp
 src/io/circular_buffer.h
 src/test/serialization_flat_ut.cpp
+src/test/serialization_flat_circular_ut.cpp
+src/test/io_circular_buffer_ut.cpp
 ```
 
 Przykłady: `src/examples/serialize_people.cpp`, `serialize_game.cpp`, `circular_buffer_serialization.test.cpp`.

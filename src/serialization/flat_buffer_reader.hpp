@@ -24,6 +24,8 @@ namespace serialization {
       flat_buffer_reader(Source source, std::size_t start, std::size_t end)
         : source_(std::move(source)), cursor_(start), frame_start_(start), frame_end_(end) {}
 
+      void set_skip_pointers(bool skip) { skip_pointers_ = skip; }
+
       consteval bool is_indexed() { return true; }
 
       void enter_frame() {
@@ -191,6 +193,10 @@ namespace serialization {
       void read_pointer(std::shared_ptr<T>& value, ReadLater read_later) {
         std::int32_t delta = 0;
         read_i32(delta);
+        if(skip_pointers_) {
+          value = nullptr;
+          return;
+        }
         if(delta == 0) {
           value = nullptr;
           return;
@@ -252,6 +258,7 @@ namespace serialization {
       std::size_t frame_start_;
       std::size_t frame_end_;
       std::vector<Frame> frames_;
+      bool skip_pointers_ = false;
 
       std::vector<std::shared_ptr<void>> read_pointers_;
       std::vector<std::pair<std::vector<AssignAfterRead>, ReadLater>> read_later_;
