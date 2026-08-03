@@ -9,21 +9,20 @@ Warstwa serializacji jest celowo rozdzielona: **logika typów** (`serialize` / `
 
 ---
 
-## Dwa formaty binarne
+## Trzy formaty binarne
 
-Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reader` obsługują **dwa różne układy bajtów** (niekompatybilne ze sobą). Wybór formatu = wybór konkretnego writer/reader backendu.
+Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reader` obsługują **różne układy bajtów** (niekompatybilne ze sobą). Wybór formatu = wybór konkretnego writer/reader backendu.
 
-| | [Skompresowany](compressed-format.md) | [Flat](flat-format.md) |
-|--|--------------------------------------|------------------------|
-| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_buffer_reader`, `flat_view` / circular FlatSource) |
-| Liczby | varint (uvarint/svarint), float sortowalny | fixed LE, float IEEE LE |
-| Odczyt | tylko sekwencyjny | sekwencyjny + random access / in-place (`flat_view`) |
-| Indeks pól | brak (`save_offset` no-op) | sparse checkpointy po polach variable |
-| Rozmiar na medium | mniejszy (kompresja varint) | zwykle większy, szybszy parse |
-| Grafy `shared_ptr` | tak | tak (`write_rest` / `flat_root_shared` → `shared_ptr<flat_view<T>>`) |
-| Typowe użycie | RPC, transfer, sortowalne klucze/DB | mmap, hot-path read, duże message bez pełnej materializacji |
+| | [Skompresowany](compressed-format.md) | [Flat](flat-format.md) | [Key](key-format.md) |
+|--|--------------------------------------|------------------------|----------------------|
+| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_buffer_reader`, `flat_view` / circular) | zaimplementowany (`key_stream_*`, `key_circular_buffer_*`) |
+| Liczby | varint, float sortowalny | fixed LE | varint / float jak compressed (w **data**) |
+| Odczyt | sekwencyjny | sekwencyjny + in-place | data do przodu + meta (długości) osobno |
+| Długości | przed stringiem / w streamie | u32 LE / trailer | **meta** na końcu bloba (`[data][meta][u8]`) |
+| Grafy / mapy | tak | tak | **nie** (throw) |
+| Typowe użycie | RPC, transfer | mmap, hot-path read | klucze DB — `memcmp` bez length między polami |
 
-Szczegóły encodingu: **[compressed-format.md](compressed-format.md)**, **[flat-format.md](flat-format.md)**.
+Szczegóły: **[compressed-format.md](compressed-format.md)**, **[flat-format.md](flat-format.md)**, **[key-format.md](key-format.md)**.
 
 ---
 
@@ -43,9 +42,9 @@ Szczegóły encodingu: **[compressed-format.md](compressed-format.md)**, **[flat
 │  writer.hpp / reader.hpp  (kontrakt + abstrakcyjne stuby)   │
 └──────┬──────────────┬──────────────┬──────────────┬──────────┘
        │              │              │              │
- stream_*      circular_buffer_*   flat_*        debug_writer
- (compressed)   (compressed)     (flat LE +      (tekstowy
-                                  flat_view)      dump)
+ stream_*      circular_buffer_*   flat_*        key_*         debug_writer
+ (compressed)   (compressed)     (flat LE +    (DB keys)      (tekstowy
+                                  flat_view)                   dump)
 ```
 
 Dodatkowe elementy:
@@ -236,10 +235,24 @@ Fixed LE, sparse checkpointy (`save_offset` po polach variable), trailer `[forma
 
 ---
 
+## Format key — skrót
+
+Pełna specyfikacja: **[key-format.md](key-format.md)**. Checklist: [key-todo.md](key-todo.md).
+
+Blob `[data][meta][u8 meta_size]`: skalary i bajty stringów w **data** (encoding jak compressed); długości w **meta** (max 255 B meta). Pod `memcmp` długości nie wbijają się między pola. Bez map / `shared_ptr`.
+
+| Komponent | Rola |
+|-----------|------|
+| `key_encoder` / `key_decoder` | core + `finish()` |
+| `key_stream_writer` / `key_stream_reader` | ostream (`serialize` + `finish`) / istream (cały blob) |
+| `key_circular_buffer_writer` / `key_circular_buffer_reader` | write blob do ring; read `(cb, message_len)` przez peek |
+
+---
+
 ## Pliki kluczowe (serializacja)
 
 ```
-README.md, compressed-format.md, flat-format.md, flat-todo.md
+README.md, compressed-format.md, flat-format.md, flat-todo.md, key-format.md, key-todo.md
 src/serialization/
   reader.hpp / writer.hpp
   serialize.hpp / deserialize.hpp
@@ -248,12 +261,15 @@ src/serialization/
   flat_encoding.hpp, flat_source.hpp, flat_bytes_writer.hpp
   flat_stream_writer.hpp / flat_stream_reader.hpp
   flat_buffer_reader.hpp / flat_view.hpp
+  key_codec.hpp, key_stream_*.hpp, key_circular_buffer_*.hpp
   debug_writer.hpp
   annotations.hpp, type_concepts.hpp, type_registry.hpp
   rpc*.hpp, socket_*.hpp
 src/io/circular_buffer.h
 src/test/serialization_flat_ut.cpp
 src/test/serialization_flat_circular_ut.cpp
+src/test/serialization_key_ut.cpp
+src/test/serialization_key_circular_ut.cpp
 src/test/io_circular_buffer_ut.cpp
 ```
 
