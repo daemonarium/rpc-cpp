@@ -1,0 +1,543 @@
+#include <boost/ut.hpp>
+
+#include <cstdint>
+#include <cstring>
+#include <map>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+extern "C" {
+#include <io/circular_buffer.h>
+}
+
+#include "serialization/flat_stream_writer.hpp"
+#include "serialization/flat_stream_reader.hpp"
+#include "serialization/flat_buffer_reader.hpp"
+#include "serialization/flat_view.hpp"
+#include "serialization/flat_source.hpp"
+#include "serialization/serialize.hpp"
+#include "serialization/deserialize.hpp"
+
+using namespace boost::ut;
+using namespace serialization;
+
+namespace {
+
+  struct Skill {
+    std::string name;
+    std::int32_t level = 0;
+  };
+
+  struct Person {
+    std::string name;
+    std::int32_t age = 0;
+    Skill skill{};
+    std::vector<std::int32_t> scores;
+    std::vector<std::string> tags;
+    std::vector<std::shared_ptr<Person>> friends;
+    std::map<std::string, std::int32_t> attrs;
+  };
+
+  template <typename T>
+  std::string flat_bytes(const T& value) {
+    std::ostringstream os;
+    flat_stream_writer w(os);
+    serialize(w, value);
+    w.write_rest();
+    return os.str();
+  }
+
+  template <typename T>
+  std::string flat_bytes_shared(const std::shared_ptr<T>& value) {
+    std::ostringstream os;
+    flat_stream_writer w(os);
+    w.register_serialize_typed_function<T>();
+    serialize(w, value);
+    w.write_rest();
+    return os.str();
+  }
+
+  void force_read_near_end(struct circular_buffer* cb, size_t pad) {
+    std::vector<std::uint8_t> junk(pad, 0xCD);
+    size_t written = 0;
+    while(written < pad) {
+      size_t n = circular_buffer_write(cb, junk.data() + written, pad - written);
+      if(n == 0) break;
+      written += n;
+    }
+    circular_buffer_skip_read(cb, written);
+  }
+
+  // Place message so exactly `before_wrap` readable bytes sit before the physical seam.
+  struct circular_buffer* place_bytes_seam(const std::string& bytes, size_t before_wrap) {
+    size_t need = bytes.size() + 64;
+    if(need < 64) need = 64;
+    struct circular_buffer* cb = circular_buffer_create(need, nullptr);
+    if(before_wrap == 0) before_wrap = 1;
+    if(before_wrap >= bytes.size()) before_wrap = bytes.size() - 1;
+    size_t usable = circular_buffer_writable_bytes(cb) + 1;
+    size_t pad = usable - before_wrap;
+    force_read_near_end(cb, pad);
+    size_t w = circular_buffer_write(cb, bytes.data(), bytes.size());
+    if(w != bytes.size()) {
+      circular_buffer_destroy(cb);
+      return nullptr;
+    }
+    return cb;
+  }
+
+  struct circular_buffer* place_bytes(const std::string& bytes, bool wrap) {
+    if(!wrap) {
+      size_t need = bytes.size() + 8;
+      if(need < 64) need = 64;
+      struct circular_buffer* cb = circular_buffer_create(need, nullptr);
+      size_t w = circular_buffer_write(cb, bytes.data(), bytes.size());
+      if(w != bytes.size()) {
+        circular_buffer_destroy(cb);
+        return nullptr;
+      }
+      return cb;
+    }
+    size_t before_wrap = bytes.size() / 2;
+    if(before_wrap == 0) before_wrap = 1;
+    if(before_wrap >= bytes.size()) before_wrap = bytes.size() - 1;
+    return place_bytes_seam(bytes, before_wrap);
+  }
+
+  bool ptr_in_ring(struct circular_buffer* cb, const void* p) {
+    if(!cb || !p || !cb->data) return false;
+    const char* base = cb->data->data;
+    // data[] length == data->size - sizeof(size_t)*3 (read/write/size header fields).
+    const size_t data_len = cb->data->size >= 3 * sizeof(size_t)
+      ? cb->data->size - 3 * sizeof(size_t)
+      : 0;
+    const char* c = static_cast<const char*>(p);
+    return c >= base && c < base + data_len;
+  }
+
+  std::vector<std::uint8_t> concat_segments(struct circular_buffer_segment segs[2], int n) {
+    std::vector<std::uint8_t> out;
+    for(int i = 0; i < n; ++i) {
+      out.insert(out.end(),
+        reinterpret_cast<const std::uint8_t*>(segs[i].ptr),
+        reinterpret_cast<const std::uint8_t*>(segs[i].ptr) + segs[i].len);
+    }
+    return out;
+  }
+
+  template <typename T>
+  T roundtrip_circular_reader(const T& value, bool wrap) {
+    std::string bytes = flat_bytes(value);
+    struct circular_buffer* cb = place_bytes(bytes, wrap);
+    expect(cb != nullptr);
+    circular_flat_source src(cb);
+    flat_buffer_reader<circular_flat_source> r(src);
+    T out{};
+    deserialize(r, out);
+    r.read_rest();
+    circular_buffer_destroy(cb);
+    return out;
+  }
+
+  void expect_person_view_fields(const flat_view<Person>& view) {
+    expect(eq(std::string(view.get<^^Person::name>()), std::string{"Ada"}));
+    expect(eq(view.get<^^Person::age>(), 36));
+    auto skill = view.get<^^Person::skill>();
+    expect(eq(std::string(skill.get<^^Skill::name>()), std::string{"math"}));
+    expect(eq(skill.get<^^Skill::level>(), 10));
+    auto scores = view.get<^^Person::scores>();
+    expect(eq(scores.size(), std::size_t{2}));
+    expect(eq(scores[0], 1));
+    expect(eq(scores[1], 2));
+    auto tags = view.get<^^Person::tags>();
+    expect(eq(tags.size(), std::size_t{2}));
+    expect(eq(std::string(tags[0]), std::string{"a"}));
+    expect(eq(std::string(tags[1]), std::string{"b"}));
+    expect(eq(view.get<^^Person::attrs>().find(std::string{"hp"}), 100));
+  }
+
+}
+
+int main() {
+  static_assert(flat_source_is_contiguous_v<span_flat_source>);
+  static_assert(!flat_source_is_contiguous_v<circular_flat_source>);
+
+  "circular flat_source peek"_test = [] {
+    std::string bytes = flat_bytes(std::int32_t{42});
+    struct circular_buffer* cb = place_bytes(bytes, true);
+    expect(cb != nullptr);
+    circular_flat_source src(cb);
+    expect(eq(src.size(), bytes.size()));
+    std::vector<std::uint8_t> got(bytes.size());
+    expect(eq(src.peek(0, got.data(), got.size()), got.size()));
+    expect(static_cast<bool>(std::memcmp(got.data(), bytes.data(), bytes.size()) == 0));
+    circular_buffer_destroy(cb);
+  };
+
+  "circular flat_source segments try_ptr null"_test = [] {
+    {
+      circular_flat_source empty;
+      expect(eq(empty.size(), std::size_t{0}));
+      std::uint8_t b = 0;
+      expect(eq(empty.peek(0, &b, 1), std::size_t{0}));
+      expect(empty.try_ptr(0, 1) == nullptr);
+      struct circular_buffer_segment segs[2];
+      expect(eq(empty.get_segments(0, 1, segs), 0));
+      expect(empty.region_contiguous(0, 0) == false);
+    }
+
+    std::string bytes = flat_bytes(std::string{"hello-world!!"});
+    {
+      struct circular_buffer* cb = place_bytes(bytes, false);
+      circular_flat_source src(cb);
+      expect(src.region_contiguous(0, bytes.size()));
+      expect(src.try_ptr(0, bytes.size()) != nullptr);
+      struct circular_buffer_segment segs[2];
+      expect(eq(src.get_segments(0, bytes.size(), segs), 1));
+      expect(eq(segs[0].len, bytes.size()));
+      std::vector<std::uint8_t> peeked(bytes.size());
+      src.peek(0, peeked.data(), peeked.size());
+      expect(static_cast<bool>(concat_segments(segs, 1) == peeked));
+      circular_buffer_destroy(cb);
+    }
+    {
+      struct circular_buffer* cb = place_bytes(bytes, true);
+      expect(circular_buffer_region_contiguous(cb, 0, bytes.size()) == 0);
+      circular_flat_source src(cb);
+      expect(!src.region_contiguous(0, bytes.size()));
+      expect(src.try_ptr(0, bytes.size()) == nullptr);
+      struct circular_buffer_segment segs[2];
+      expect(eq(src.get_segments(0, bytes.size(), segs), 2));
+      std::vector<std::uint8_t> peeked(bytes.size());
+      src.peek(0, peeked.data(), peeked.size());
+      expect(static_cast<bool>(concat_segments(segs, 2) == peeked));
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular reader contig and wrap scalars"_test = [] {
+    expect(eq(roundtrip_circular_reader(std::int32_t{-99}, false), std::int32_t{-99}));
+    expect(eq(roundtrip_circular_reader(std::int32_t{-99}, true), std::int32_t{-99}));
+    expect(eq(roundtrip_circular_reader(std::string{"hello"}, true), std::string{"hello"}));
+    expect(eq(roundtrip_circular_reader(std::string{""}, true), std::string{""}));
+  };
+
+  "circular reader wrap vector and map"_test = [] {
+    std::vector<std::int32_t> v{1, 2, 3, 4};
+    expect(static_cast<bool>(roundtrip_circular_reader(v, true) == v));
+    std::vector<std::string> vs{"a", "bb", "ccc"};
+    expect(static_cast<bool>(roundtrip_circular_reader(vs, true) == vs));
+    std::map<std::string, std::int32_t> m{{"x", 1}, {"y", 2}};
+    expect(static_cast<bool>(roundtrip_circular_reader(m, true) == m));
+  };
+
+  "circular reader seam sweep small message"_test = [] {
+    std::string msg = flat_bytes(std::string{"abcdefghijklmnop"});
+    for(size_t seam = 0; seam < msg.size(); ++seam) {
+      size_t cap = 64;
+      struct circular_buffer* cb = circular_buffer_create(cap, nullptr);
+      size_t pad = (cap > msg.size() + 2) ? (cap - msg.size() - 2 + (seam % 7)) : 8;
+      force_read_near_end(cb, pad % (cap / 2 + 1));
+      if(circular_buffer_writable_bytes(cb) < msg.size()) {
+        circular_buffer_destroy(cb);
+        continue;
+      }
+      circular_buffer_write(cb, msg.data(), msg.size());
+      circular_flat_source src(cb);
+      flat_buffer_reader<circular_flat_source> r(src);
+      std::string out;
+      deserialize(r, out);
+      expect(eq(out, std::string{"abcdefghijklmnop"}));
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular flat_root_circular contig and wrap"_test = [] {
+    Person p;
+    p.name = "Ada";
+    p.age = 36;
+    p.skill = Skill{"math", 10};
+    p.scores = {1, 2};
+    p.tags = {"a", "b"};
+    p.attrs = {{"hp", 100}};
+    std::string bytes = flat_bytes(p);
+
+    {
+      struct circular_buffer* cb = place_bytes(bytes, false);
+      expect(circular_buffer_region_contiguous(cb, 0, bytes.size()) != 0);
+      auto view = flat_root_circular<Person>(cb, bytes.size());
+      expect_person_view_fields(view);
+      std::string_view name = view.get<^^Person::name>();
+      expect(ptr_in_ring(cb, name.data()));
+      const char* ring = nullptr;
+      expect(eq(circular_buffer_try_contiguous_ptr(cb, 0, bytes.size(), &ring), bytes.size()));
+      expect(name.data() >= ring && name.data() < ring + bytes.size());
+      circular_buffer_destroy(cb);
+    }
+    {
+      struct circular_buffer* cb = place_bytes(bytes, true);
+      expect(circular_buffer_region_contiguous(cb, 0, bytes.size()) == 0);
+      auto view = flat_root_circular<Person>(cb, bytes.size());
+      expect_person_view_fields(view);
+      std::string_view name = view.get<"name">();
+      // Materialized path: string bytes live in owned vector, not necessarily ring.
+      expect(eq(std::string(name), std::string{"Ada"}));
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular flat_root_circular map find"_test = [] {
+    Person p;
+    p.name = "M";
+    p.attrs = {{"aa", 2}, {"b", 1}};
+    std::string bytes = flat_bytes(p);
+    for(bool wrap : {false, true}) {
+      struct circular_buffer* cb = place_bytes(bytes, wrap);
+      auto view = flat_root_circular<Person>(cb, bytes.size());
+      auto attrs = view.get<^^Person::attrs>();
+      expect(eq(attrs.find(std::string{"b"}), 1));
+      expect(eq(attrs.find(std::string{"aa"}), 2));
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular shared_ptr reader graph"_test = [] {
+    auto a = std::make_shared<Person>();
+    a->name = "A";
+    a->age = 1;
+    auto b = std::make_shared<Person>();
+    b->name = "B";
+    b->age = 2;
+    a->friends.push_back(b);
+    a->friends.push_back(nullptr);
+    b->friends.push_back(a);
+
+    std::string bytes = flat_bytes_shared(a);
+    for(bool wrap : {false, true}) {
+      struct circular_buffer* cb = place_bytes(bytes, wrap);
+      expect(cb != nullptr);
+      circular_flat_source src(cb);
+      flat_buffer_reader<circular_flat_source> r(src);
+      r.register_deserialize_typed_function<Person>();
+      std::shared_ptr<Person> out;
+      deserialize(r, out);
+      r.read_rest();
+      expect(out != nullptr);
+      expect(eq(out->name, std::string{"A"}));
+      expect(eq(out->friends.size(), std::size_t{2}));
+      expect(out->friends[0] != nullptr);
+      expect(eq(out->friends[0]->name, std::string{"B"}));
+      expect(out->friends[1] == nullptr);
+      expect(out->friends[0]->friends.size() == 1_u);
+      expect(out->friends[0]->friends[0].get() == out.get());
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular flat_root_shared_circular graph"_test = [] {
+    auto a = std::make_shared<Person>();
+    a->name = "Root";
+    a->age = 10;
+    auto b = std::make_shared<Person>();
+    b->name = "Friend";
+    b->age = 11;
+    a->friends.push_back(b);
+    a->friends.push_back(a);
+
+    std::string bytes = flat_bytes_shared(a);
+    for(bool wrap : {false, true}) {
+      struct circular_buffer* cb = place_bytes(bytes, wrap);
+      expect(eq(circular_buffer_region_contiguous(cb, 0, bytes.size()) != 0, !wrap));
+      auto root = flat_root_shared_circular<Person>(cb, bytes.size());
+      expect(root != nullptr);
+      expect(eq(std::string(root->get<^^Person::name>()), std::string{"Root"}));
+      expect(eq(root->get<^^Person::age>(), 10));
+      auto friends = root->get<^^Person::friends>();
+      expect(eq(friends.size(), std::size_t{2}));
+      expect(friends[0] != nullptr);
+      expect(friends[1] != nullptr);
+      expect(eq(std::string(friends[0]->get<^^Person::name>()), std::string{"Friend"}));
+      expect(friends[1].get() == root.get());
+      if(!wrap) {
+        std::string_view name = root->get<^^Person::name>();
+        expect(ptr_in_ring(cb, name.data()));
+      }
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular flat_root_shared null and acyclic"_test = [] {
+    {
+      std::shared_ptr<Person> nil;
+      std::string bytes = flat_bytes_shared(nil);
+      struct circular_buffer* cb = place_bytes(bytes, false);
+      auto root = flat_root_shared_circular<Person>(cb, bytes.size());
+      expect(root == nullptr);
+      circular_buffer_destroy(cb);
+    }
+    {
+      auto a = std::make_shared<Person>();
+      a->name = "A";
+      auto b = std::make_shared<Person>();
+      b->name = "B";
+      a->friends.push_back(b);
+      std::string bytes = flat_bytes_shared(a);
+      for(bool wrap : {false, true}) {
+        struct circular_buffer* cb = place_bytes(bytes, wrap);
+        auto root = flat_root_shared_circular<Person>(cb, bytes.size());
+        expect(root != nullptr);
+        expect(eq(std::string(root->get<^^Person::name>()), std::string{"A"}));
+        auto friends = root->get<^^Person::friends>();
+        expect(eq(friends.size(), std::size_t{1}));
+        expect(friends[0] != nullptr);
+        expect(eq(std::string(friends[0]->get<^^Person::name>()), std::string{"B"}));
+        expect(friends[0]->get<^^Person::friends>().size() == 0_u);
+        circular_buffer_destroy(cb);
+      }
+    }
+  };
+
+  "circular shared_ptr reader wrap seam sweep"_test = [] {
+    auto a = std::make_shared<Person>();
+    a->name = "A";
+    auto b = std::make_shared<Person>();
+    b->name = "B";
+    a->friends.push_back(b);
+    b->friends.push_back(a);
+    std::string msg = flat_bytes_shared(a);
+    for(size_t pad = 1; pad < 40; ++pad) {
+      size_t cap = msg.size() + 48;
+      struct circular_buffer* cb = circular_buffer_create(cap, nullptr);
+      force_read_near_end(cb, pad % (circular_buffer_writable_bytes(cb) / 2 + 1));
+      if(circular_buffer_writable_bytes(cb) < msg.size()) {
+        circular_buffer_destroy(cb);
+        continue;
+      }
+      circular_buffer_write(cb, msg.data(), msg.size());
+      circular_flat_source src(cb);
+      flat_buffer_reader<circular_flat_source> r(src);
+      r.register_deserialize_typed_function<Person>();
+      std::shared_ptr<Person> out;
+      deserialize(r, out);
+      r.read_rest();
+      expect(out != nullptr);
+      expect(eq(out->name, std::string{"A"}));
+      expect(out->friends[0]->friends[0].get() == out.get());
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular flat_root_shared_circular seam sweep"_test = [] {
+    auto a = std::make_shared<Person>();
+    a->name = "A";
+    auto b = std::make_shared<Person>();
+    b->name = "B";
+    a->friends.push_back(b);
+    b->friends.push_back(a);
+    std::string msg = flat_bytes_shared(a);
+    for(size_t before = 1; before < msg.size(); before += 3) {
+      struct circular_buffer* cb = place_bytes_seam(msg, before);
+      expect(cb != nullptr);
+      expect(circular_buffer_region_contiguous(cb, 0, msg.size()) == 0);
+      auto root = flat_root_shared_circular<Person>(cb, msg.size());
+      expect(root != nullptr);
+      expect(eq(std::string(root->get<^^Person::name>()), std::string{"A"}));
+      auto friends = root->get<^^Person::friends>();
+      expect(eq(friends.size(), std::size_t{1}));
+      expect(friends[0] != nullptr);
+      expect(eq(std::string(friends[0]->get<^^Person::name>()), std::string{"B"}));
+      auto back = friends[0]->get<^^Person::friends>();
+      expect(eq(back.size(), std::size_t{1}));
+      expect(back[0].get() == root.get());
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular measure_frame parity"_test = [] {
+    Person p;
+    p.name = "X";
+    p.age = 1;
+    p.skill = Skill{"s", 2};
+    p.scores = {3};
+    p.tags = {"t"};
+    std::string bytes = flat_bytes(p);
+    auto span_src = span_flat_source(
+      std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()));
+    std::size_t a = flat_detail::measure_frame<Person>(span_src, 0, bytes.size());
+
+    {
+      struct circular_buffer* cb = place_bytes(bytes, false);
+      circular_flat_source csrc(cb);
+      std::size_t b = flat_detail::measure_frame<Person>(csrc, 0, bytes.size());
+      expect(eq(a, b));
+      expect(eq(a, bytes.size()));
+      circular_buffer_destroy(cb);
+    }
+    {
+      struct circular_buffer* cb = place_bytes(bytes, true);
+      expect(circular_buffer_region_contiguous(cb, 0, bytes.size()) == 0);
+      circular_flat_source csrc(cb);
+      std::size_t b = flat_detail::measure_frame<Person>(csrc, 0, bytes.size());
+      expect(eq(a, b));
+      auto mat = flat_peek_range(cb, 0, bytes.size());
+      auto mat_src = span_flat_source(std::span<const std::uint8_t>(mat.data(), mat.size()));
+      expect(eq(a, flat_detail::measure_frame<Person>(mat_src, 0, mat.size())));
+      circular_buffer_destroy(cb);
+    }
+  };
+
+  "circular factory error paths"_test = [] {
+    Person p;
+    p.name = "e";
+    std::string bytes = flat_bytes(p);
+    struct circular_buffer* cb = place_bytes(bytes, false);
+    expect(throws<std::runtime_error>([] {
+      flat_root_circular<Person>(nullptr, 4);
+    }));
+    expect(throws<std::runtime_error>([&] {
+      flat_root_circular<Person>(cb, bytes.size() + 1);
+    }));
+    expect(throws<std::runtime_error>([] {
+      flat_root_shared_circular<Person>(nullptr, 4);
+    }));
+    expect(throws<std::runtime_error>([&] {
+      flat_root_shared_circular<Person>(cb, bytes.size() + 1);
+    }));
+    circular_buffer_destroy(cb);
+  };
+
+  "circular lifetime smoke"_test = [] {
+    {
+      std::string bytes = flat_bytes(std::string{"ok"});
+      struct circular_buffer* cb = place_bytes(bytes, false);
+      {
+        circular_flat_source src(cb);
+        flat_buffer_reader<circular_flat_source> r(src);
+        std::string out;
+        deserialize(r, out);
+        expect(eq(out, std::string{"ok"}));
+      }
+      circular_buffer_skip_read(cb, bytes.size());
+      expect(eq(circular_buffer_readable_bytes(cb), std::size_t{0}));
+      circular_buffer_destroy(cb);
+    }
+    {
+      Person p;
+      p.name = "Z";
+      p.age = 1;
+      std::string bytes = flat_bytes(p);
+      struct circular_buffer* cb = place_bytes(bytes, false);
+      {
+        auto view = flat_root_circular<Person>(cb, bytes.size());
+        expect(eq(std::string(view.get<^^Person::name>()), std::string{"Z"}));
+      }
+      circular_buffer_skip_read(cb, bytes.size());
+      expect(eq(circular_buffer_readable_bytes(cb), std::size_t{0}));
+      circular_buffer_destroy(cb);
+    }
+  };
+}

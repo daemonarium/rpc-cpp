@@ -11,6 +11,7 @@ namespace serialization {
   requires(Binary<T> && Reader<R>)
   void deserialize(R& reader, T& value) {
     reader.read_binary(value);
+    reader.save_offset();
   }
 
   template <ContainerButNotString T, Reader R>
@@ -24,22 +25,16 @@ namespace serialization {
       deserialize(reader, value[i]);
     }
     reader.exit_frame();
+    reader.save_offset();
   }
 
   template <Map T, Reader R>
   requires(Reader<R> && Map<T>)
   void deserialize(R& reader, T& value) {
-    reader.enter_frame();
-    std::size_t length;
-    reader.read_length(length);
-    for (std::size_t i = 0; i < length; ++i) {
-      typename T::key_type key;
-      typename T::mapped_type item_value;
-      deserialize(reader, key);
-      deserialize(reader, item_value);
-      value.insert(std::make_pair(key, item_value));
-    }
-    reader.exit_frame();
+    reader.read_map(value,
+      [&](auto& r, typename T::key_type& k) { deserialize(r, k); },
+      [&](auto& r, typename T::mapped_type& v) { deserialize(r, v); });
+    reader.save_offset();
   }
 
   template <UnsignedInteger T, Reader R>
@@ -75,7 +70,7 @@ namespace serialization {
   }
 
   template <SignedInteger T, Reader R>
-  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && (sizeof(T) == 1))
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 1))
   void deserialize(R& reader, T& value) {
     std::int8_t i8;
     reader.read_i8(i8);
@@ -83,7 +78,7 @@ namespace serialization {
   }
 
   template <SignedInteger T, Reader R>
-  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && (sizeof(T) == 2))
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 2))
   void deserialize(R& reader, T& value) {
     std::int16_t i16;
     reader.read_i16(i16);
@@ -91,7 +86,7 @@ namespace serialization {
   }
 
   template <SignedInteger T, Reader R>
-  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && (sizeof(T) == 4))
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 4))
   void deserialize(R& reader, T& value) {
     std::int32_t i32;
     reader.read_i32(i32);
@@ -99,7 +94,7 @@ namespace serialization {
   }
 
   template <SignedInteger T, Reader R>
-  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && (sizeof(T) == 8))
+  requires(Reader<R> && SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 8))
   void deserialize(R& reader, T& value) {
     std::int64_t i64;
     reader.read_i64(i64);
@@ -138,6 +133,7 @@ namespace serialization {
   requires(Reader<R> && String<T>)
   void deserialize(R& reader, T& value) {
     reader.read_string(value);
+    reader.save_offset();
   }
 
   template <UniquePointer T, Reader R>
@@ -181,6 +177,7 @@ namespace serialization {
     reader.enter_frame();
     deserialize_members<T, R, T>(reader, value);
     reader.exit_frame();
+    reader.save_offset();
   }
 
 }

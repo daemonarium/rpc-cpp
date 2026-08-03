@@ -117,6 +117,15 @@ namespace serialization {
         debug("write_length %zd", length);
         write_uvar_int_32(static_cast<std::uint32_t>(length));
       }
+
+      template <class Map, class KeyCb, class ValCb>
+      void write_map(const Map& map, KeyCb&& key_cb, ValCb&& val_cb) {
+        write_length(map.size());
+        for(const auto& element : map) {
+          key_cb(*this, element.first);
+          val_cb(*this, element.second);
+        }
+      }
       
       template <typename T>
       void register_serialize_exception_function() {

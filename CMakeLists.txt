@@ -110,6 +110,38 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  # --- Serialization tests (flat) ---
+
+  add_executable(serialization_flat_ut src/test/serialization_flat_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_flat_ut PRIVATE src)
+  target_link_libraries(serialization_flat_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_flat_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(serialization_flat_circular_ut src/test/serialization_flat_circular_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_flat_circular_ut PRIVATE src)
+  target_link_libraries(serialization_flat_circular_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_flat_circular_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  # --- Serialization tests (key format) ---
+
+  add_executable(serialization_key_ut src/test/serialization_key_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_key_ut PRIVATE src)
+  target_link_libraries(serialization_key_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_key_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(serialization_key_circular_ut src/test/serialization_key_circular_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_key_circular_ut PRIVATE src)
+  target_link_libraries(serialization_key_circular_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_key_circular_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   # Generator for TSV reference data (value + binary) for TS tests
   add_executable(generate_serialization_tsv src/test/generate_serialization_tsv.cpp ${IO_FILES})
   target_include_directories(generate_serialization_tsv PRIVATE src)
@@ -168,6 +200,10 @@ if(NOT WASM)
   add_test(NAME io_circular_buffer_ut COMMAND io_circular_buffer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME socket_loopback_ut COMMAND socket_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_stream_ut COMMAND serialization_stream_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_flat_ut COMMAND serialization_flat_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_flat_circular_ut COMMAND serialization_flat_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_key_ut COMMAND serialization_key_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_key_circular_ut COMMAND serialization_key_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_cb_ut COMMAND serialization_cb_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_types_ut COMMAND serialization_types_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME message_channel_ut COMMAND message_channel_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)

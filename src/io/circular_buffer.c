@@ -215,6 +215,77 @@ size_t circular_buffer_peek(struct circular_buffer* buffer, size_t offset, void*
   return circular_buffer_data_peek(buffer->data, offset, dest, bytes);
 }
 
+static size_t circular_buffer_data_first_run(struct circular_buffer_data* buffer) {
+  size_t readable = circular_buffer_data_readable_bytes(buffer);
+  size_t source_buffer_length = buffer->size - HEADER_SIZE;
+  size_t to_end = source_buffer_length - buffer->read_offset;
+  if(to_end > readable) to_end = readable;
+  return to_end;
+}
+
+int circular_buffer_get_segments(
+    struct circular_buffer* buffer,
+    size_t offset,
+    size_t len,
+    struct circular_buffer_segment out[2]) {
+  if(!buffer || !buffer->data || !out) return 0;
+  out[0].ptr = NULL;
+  out[0].len = 0;
+  out[1].ptr = NULL;
+  out[1].len = 0;
+
+  size_t readable = circular_buffer_data_readable_bytes(buffer->data);
+  if(offset > readable) return 0;
+  if(len == 0) {
+    /* Empty range: treat as one empty segment at the logical start position. */
+    size_t first_run = circular_buffer_data_first_run(buffer->data);
+    if(offset < first_run) {
+      out[0].ptr = buffer->data->data + buffer->data->read_offset + offset;
+    } else {
+      out[0].ptr = buffer->data->data + (offset - first_run);
+    }
+    out[0].len = 0;
+    return 1;
+  }
+  if(offset + len > readable) return 0;
+
+  size_t first_run = circular_buffer_data_first_run(buffer->data);
+  if(offset + len <= first_run) {
+    out[0].ptr = buffer->data->data + buffer->data->read_offset + offset;
+    out[0].len = len;
+    return 1;
+  }
+  if(offset >= first_run) {
+    out[0].ptr = buffer->data->data + (offset - first_run);
+    out[0].len = len;
+    return 1;
+  }
+  /* Crosses the seam */
+  out[0].ptr = buffer->data->data + buffer->data->read_offset + offset;
+  out[0].len = first_run - offset;
+  out[1].ptr = buffer->data->data;
+  out[1].len = len - out[0].len;
+  return 2;
+}
+
+int circular_buffer_region_contiguous(
+    struct circular_buffer* buffer, size_t offset, size_t len) {
+  struct circular_buffer_segment segs[2];
+  int n = circular_buffer_get_segments(buffer, offset, len, segs);
+  return n == 1;
+}
+
+size_t circular_buffer_try_contiguous_ptr(
+    struct circular_buffer* buffer, size_t offset, size_t len, const char** ptr) {
+  if(!ptr) return 0;
+  *ptr = NULL;
+  struct circular_buffer_segment segs[2];
+  int n = circular_buffer_get_segments(buffer, offset, len, segs);
+  if(n != 1) return 0;
+  *ptr = segs[0].ptr;
+  return segs[0].len;
+}
+
 size_t circular_buffer_capacity(struct circular_buffer* buffer) {
   return buffer->data->size - HEADER_SIZE - 1;
 }

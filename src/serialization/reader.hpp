@@ -33,6 +33,7 @@ namespace serialization {
     { reader.is_indexed() } -> std::same_as<bool>;
     { reader.enter_frame() } -> std::same_as<void>;
     { reader.exit_frame() } -> std::same_as<void>;
+    { reader.save_offset() } -> std::same_as<void>;
     { reader.enter_indexed_frame(0) } -> std::same_as<void>;
     { reader.read_typed(data) } -> std::same_as<void>;
     { reader.read_typed(weak_data) } -> std::same_as<void>;
@@ -48,6 +49,7 @@ namespace serialization {
       void enter_indexed_frame(size_t id) { throw std::runtime_error("Not implemented"); }
       void enter_frame() { throw std::runtime_error("Not implemented"); }
       void exit_frame() { throw std::runtime_error("Not implemented"); }
+      void save_offset() { throw std::runtime_error("Not implemented"); }
 
       void read_u64(std::uint64_t& value) { throw std::runtime_error("Not implemented"); }
       void read_i64(std::int64_t& value) { throw std::runtime_error("Not implemented"); }
