@@ -302,7 +302,7 @@ namespace serialization {
       type->type_index_ = std::type_index(typeid(T));
       registry.register_type(type);
       type->key = create(typename T::key_type(), registry);
-      type->item = create(typename T::value_type(), registry);      
+      type->item = create(typename T::mapped_type(), registry);      
       return type;
     }
   
