@@ -76,6 +76,15 @@ namespace waos {
     std::uint32_t count = 0;
   };
 
+  struct [[=serialization::message()]] debug_bindings_event {
+    std::uint32_t reserved = 0;
+  };
+
+  struct [[=serialization::message()]] debug_registry_event {
+    std::uint64_t process_id = 0;
+    std::uint32_t socket_id = 0;
+  };
+
   class debug_store {
     public:
       debug_store() = default;

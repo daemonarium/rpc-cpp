@@ -41,6 +41,10 @@ void register_all() {
   register_rpc(spansEv);
   waos::debug_metrics_event metricsEv;
   register_rpc(metricsEv);
+  waos::debug_bindings_event bindingsEv;
+  register_rpc(bindingsEv);
+  waos::debug_registry_event registryEv;
+  register_rpc(registryEv);
 
   waos::debug_error dbgErr;
   register_rpc(dbgErr);
