@@ -24,6 +24,7 @@ namespace waos {
     BUFFER_STATE = 1u << 10,
     BUFFER_DATA = 1u << 11,
     MANA = 1u << 12,
+    BIND = 1u << 13,
   };
 
   struct monitor_config {
@@ -155,6 +156,22 @@ namespace waos {
   struct [[=serialization::message()]] process_set_mana_limit_event : process_event {
     virtual ~process_set_mana_limit_event() {}
     size_t mana_limit;
+  };
+
+  struct [[=serialization::message()]] process_bind_event : process_event {
+    virtual ~process_bind_event() {}
+    kernel::socket_id socket;
+    kernel::process_id peer_process;
+    kernel::socket_id peer_socket;
+    kernel::direction direction;
+  };
+
+  struct [[=serialization::message()]] process_unbind_event : process_event {
+    virtual ~process_unbind_event() {}
+    kernel::socket_id socket;
+    kernel::process_id peer_process;
+    kernel::socket_id peer_socket;
+    kernel::direction direction;
   };
 
   struct process_event_pointer {
