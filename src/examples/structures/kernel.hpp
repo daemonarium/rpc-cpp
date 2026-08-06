@@ -2,6 +2,7 @@
 
 #include <string>
 #include <cstdint>
+#include <vector>
 #include "serialization/annotations.hpp"
 #include "serialization/promise.hpp"
 
@@ -52,6 +53,13 @@ namespace waos {
         BOTH = 3,
       };
 
+      struct socket_binding {
+        socket_id socket;
+        process_id peer_process;
+        socket_id peer_socket;
+        direction direction;
+      };
+
       static std::shared_ptr<serialization::promise<process_id>> spawn(binary code, size_t memory_limit, size_t mana_limit) {
         return serialization::promise<process_id>::resolved(0);
       }
@@ -93,6 +101,14 @@ namespace waos {
 
       static std::shared_ptr<serialization::promise<void>> set_mana_limit(process_id process, size_t mana_limit) {
         return serialization::promise<void>::resolved();
+      }
+
+      static std::shared_ptr<serialization::promise<std::vector<socket_binding>>> list_socket_bindings(process_id id) {
+        return serialization::promise<std::vector<socket_binding>>::resolved({});
+      }
+
+      static std::shared_ptr<serialization::promise<binary>> get_rpc_description(process_id id, socket_id socket) {
+        return serialization::promise<binary>::resolved({});
       }
   };
 
