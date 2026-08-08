@@ -45,6 +45,14 @@ void register_all() {
   register_rpc(bindingsEv);
   waos::debug_registry_event registryEv;
   register_rpc(registryEv);
+  waos::debug_code_event codeEv;
+  register_rpc(codeEv);
+  waos::session_meta sessionMeta;
+  register_rpc(sessionMeta);
+  waos::snapshot_meta snapshotMeta;
+  register_rpc(snapshotMeta);
+  waos::bindings_snapshot bindingsSnap;
+  register_rpc(bindingsSnap);
 
   waos::debug_error dbgErr;
   register_rpc(dbgErr);

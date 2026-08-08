@@ -7,6 +7,7 @@
 #include <exception>
 #include "serialization/annotations.hpp"
 #include "serialization/promise.hpp"
+#include "examples/structures/kernel.hpp"
 
 namespace waos {
 
@@ -23,6 +24,29 @@ namespace waos {
     std::uint64_t session_id = 0;
     std::uint64_t store_process = 0;
     std::uint64_t store_socket = 0;
+  };
+
+  // On-disk session metadata (meta.bin) — serialized with the RPC codec.
+  struct session_meta {
+    std::string name;
+    std::uint64_t process_id = 0;
+    std::string status;
+    std::string error;
+    labels labels;
+  };
+
+  // On-disk snapshot side-car (snap.<uid>.meta.bin).
+  struct snapshot_meta {
+    std::uint64_t snapshot_uid = 0;
+    std::uint64_t mana_used = 0;
+    std::uint64_t mana_limit = 0;
+    std::uint64_t memory_size = 0;
+  };
+
+  // On-disk socket topology (bindings.bin).
+  struct bindings_snapshot {
+    std::uint64_t process_id = 0;
+    std::vector<kernel::socket_binding> bindings;
   };
 
   struct [[=serialization::exception()]] debug_error : public std::exception {
@@ -83,6 +107,10 @@ namespace waos {
   struct [[=serialization::message()]] debug_registry_event {
     std::uint64_t process_id = 0;
     std::uint32_t socket_id = 0;
+  };
+
+  struct [[=serialization::message()]] debug_code_event {
+    std::uint32_t reserved = 0;
   };
 
   class debug_store {

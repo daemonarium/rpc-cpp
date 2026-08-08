@@ -26,6 +26,8 @@ namespace waos {
     std::string session_name;
     labels labels;
     record_config config;
+    // Host-supplied target WASM bytes (empty for LocalProcess / soft-empty).
+    binary code;
   };
 
   struct start_recording_result {
