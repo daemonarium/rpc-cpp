@@ -11,8 +11,9 @@ serialization::type_registry registry(true);
 void register_all();
 
 extern "C" size_t rpc_description(std::uint32_t socket, char** buffer) {
+  // Types were registered in start() via register_all(). Do not call register_all()
+  // again — re-registration throws under wasm exceptions and empties the export.
   serialization::type_description::create(serialization::read_annotation(), registry);
-  register_all();
   std::ostringstream output_stream;
   serialization::stream_writer writer(output_stream);  
 
