@@ -223,13 +223,17 @@ namespace serialization {
 
       void read_rest() {
         while(!read_later_.empty()) {
-          auto pair = read_later_.front();
+          // Move callback out; do not keep references across it — read_typed may
+          // push_back new later-entries and reallocate. Self-refs append assigns
+          // onto front().first during the callback; collect them afterwards.
+          ReadLater callbacks = std::move(read_later_.front().second);
           std::shared_ptr<void> result;
-          pair.second(result);
-          for(auto& assign : pair.first) {
+          callbacks(result);
+          auto assigns = std::move(read_later_.front().first);
+          for(auto& assign : assigns) {
             assign(result);
           }
-          read_pointers_.push_back(result);
+          read_pointers_.push_back(std::move(result));
           read_later_.erase(read_later_.begin());
         }
       }

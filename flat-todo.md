@@ -13,6 +13,7 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 
 - [x] `src/serialization/flat_encoding.hpp`
 - [x] `src/serialization/flat_stream_writer.hpp`
+- [x] `src/serialization/flat_circular_buffer_writer.hpp`
 - [x] `src/serialization/flat_stream_reader.hpp`
 - [x] `src/serialization/flat_source.hpp`
 - [x] `src/serialization/flat_buffer_reader.hpp`
@@ -21,6 +22,7 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 - [x] `src/serialization/flat_bytes_writer.hpp`
 - [x] `src/test/serialization_flat_ut.cpp`
 - [x] `src/test/serialization_flat_circular_ut.cpp`
+- [x] `src/test/serialization_flat_circular_writer_ut.cpp`
 - [x] CMake: target + `add_test`
 - [x] `reader.hpp` / `deserialize.hpp` / no-op `save_offset` w stream/cb readers
 - [x] README + status w flat-format.md
@@ -71,6 +73,11 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 ### 7. Docs
 - [x] odhaczyć ten plik
 - [x] README
+
+### 9. flat_circular_buffer_writer
+- [x] poke + `write_offset_` (bez auto-commit)
+- [x] ramki / mapy / pointer / typed jak stream
+- [x] UT (roundtrip, wrap-on-write, graph, short space)
 
 ## Później
 

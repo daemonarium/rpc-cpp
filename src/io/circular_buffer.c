@@ -140,8 +140,9 @@ size_t circular_buffer_data_poke(struct circular_buffer_data* buffer, size_t off
     memcpy(buffer->data + buffer->write_offset + offset, source, write_at_end - offset);
     memcpy(buffer->data, source + write_at_end - offset, write_at_start);
   } else {
-    size_t offset_rest = (offset - write_at_end);
-    memcpy(buffer->data + offset_rest, source, write_at_end - offset_rest);
+    size_t offset_rest = offset - write_at_end;
+    size_t to_write = write_length - offset;
+    memcpy(buffer->data + offset_rest, source, to_write);
   }
   return write_length - offset;
 }

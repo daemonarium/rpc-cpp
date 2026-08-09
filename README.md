@@ -15,7 +15,7 @@ Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reade
 
 | | [Skompresowany](compressed-format.md) | [Flat](flat-format.md) | [Key](key-format.md) |
 |--|--------------------------------------|------------------------|----------------------|
-| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_buffer_reader`, `flat_view` / circular) | zaimplementowany (`key_stream_*`, `key_circular_buffer_*`) |
+| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_circular_buffer_writer`, `flat_buffer_reader`, `flat_view` / circular) | zaimplementowany (`key_stream_*`, `key_circular_buffer_*`) |
 | Liczby | varint, float sortowalny | fixed LE | varint / float jak compressed (w **data**) |
 | Odczyt | sekwencyjny | sekwencyjny + in-place | data do przodu + meta (długości) osobno |
 | Długości | przed stringiem / w streamie | u32 LE / trailer | **meta** na końcu bloba (`[data][meta][u8]`) |
@@ -229,6 +229,7 @@ Fixed LE, sparse checkpointy (`save_offset` po polach variable), trailer `[forma
 | Komponent | Rola |
 |-----------|------|
 | `flat_stream_writer` / `flat_stream_reader` | zapis/odczyt sekwencyjny do `ostream`/`istream` |
+| `flat_circular_buffer_writer` | flat LE do pierścienia (poke + `write_offset_`); caller `commit_write` |
 | `flat_buffer_reader` + `FlatSource` | `span_flat_source` / `circular_flat_source` (peek, `get_segments`, `try_ptr`; szew OK) |
 | `flat_view<T>` / `flat_map_view` / `flat_root` / `flat_root_shared` | meta `get<^^Field>()` / `get<"name">()` → `flat_string` / `flat_bytes` / nested views; mapy SoA + BS `find`; `shared_ptr` → `shared_ptr<flat_view<U>>` |
 | `flat_root_circular` / `flat_root_shared_circular` | session na pierścieniu (wrap OK, bez full materialize); string/binary borrow lub per-field own; views do `skip_read` |
@@ -260,6 +261,7 @@ src/serialization/
   circular_buffer_reader.hpp / circular_buffer_writer.hpp
   flat_encoding.hpp, flat_source.hpp, flat_bytes.hpp, flat_bytes_writer.hpp
   flat_stream_writer.hpp / flat_stream_reader.hpp
+  flat_circular_buffer_writer.hpp
   flat_buffer_reader.hpp / flat_view.hpp
   key_codec.hpp, key_stream_*.hpp, key_circular_buffer_*.hpp
   debug_writer.hpp
@@ -268,6 +270,7 @@ src/serialization/
 src/io/circular_buffer.h
 src/test/serialization_flat_ut.cpp
 src/test/serialization_flat_circular_ut.cpp
+src/test/serialization_flat_circular_writer_ut.cpp
 src/test/serialization_key_ut.cpp
 src/test/serialization_key_circular_ut.cpp
 src/test/io_circular_buffer_ut.cpp

@@ -366,6 +366,43 @@ int main() {
     expect(out->friends[0]->friends[0].get() == out.get());
   };
 
+  "flat shared_ptr self-ref deserialize"_test = [] {
+    auto a = std::make_shared<Person>();
+    a->name = "Self";
+    a->age = 7;
+    a->friends.push_back(a);
+    a->friends.push_back(a);
+    a->friends.push_back(nullptr);
+
+    std::ostringstream os;
+    flat_stream_writer w(os);
+    w.register_serialize_typed_function<Person>();
+    serialize(w, a);
+    w.write_rest();
+    std::string bytes = os.str();
+
+    std::istringstream is(bytes);
+    flat_stream_reader r(is);
+    r.register_deserialize_typed_function<Person>();
+    std::shared_ptr<Person> out;
+    deserialize(r, out);
+    r.read_rest();
+
+    expect(out != nullptr);
+    expect(eq(out->name, std::string{"Self"}));
+    expect(eq(out->friends.size(), std::size_t{3}));
+    expect(out->friends[0].get() == out.get());
+    expect(out->friends[1].get() == out.get());
+    expect(out->friends[2] == nullptr);
+
+    std::ostringstream os2;
+    flat_stream_writer w2(os2);
+    w2.register_serialize_typed_function<Person>();
+    serialize(w2, out);
+    w2.write_rest();
+    expect(eq(os2.str(), bytes));
+  };
+
   "flat_view getters"_test = [] {
     Person p;
     p.name = "Eve";
