@@ -4,8 +4,10 @@
 #include "deserialize.hpp"
 #include "flat_encoding.hpp"
 #include "flat_source.hpp"
+#include "type_concepts.hpp"
 
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <stdexcept>
@@ -172,6 +174,49 @@ namespace serialization {
         data = shared;
       }
 
+      template <typename T>
+      void register_deserialize_exception_function() {
+        auto type = std::type_index(typeid(T));
+        exception_read_indexes_[type] = deserialize_exception_functions_.size();
+        deserialize_exception_functions_.push_back([&reader = *this]() -> std::exception_ptr {
+          if constexpr (SimpleException<T>) {
+            T ex("");
+            ::serialization::deserialize(reader, ex);
+            return std::make_exception_ptr(std::move(ex));
+          } else {
+            T ex{};
+            ::serialization::deserialize(reader, ex);
+            return std::make_exception_ptr(std::move(ex));
+          }
+        });
+      }
+
+      std::exception_ptr read_exception() {
+        std::uint32_t index = 0;
+        read_u32(index);
+        if(index >= deserialize_exception_functions_.size()) {
+          throw std::runtime_error("Exception type not registered for deserialization");
+        }
+        return deserialize_exception_functions_[index]();
+      }
+
+      template <typename T>
+      void read_message(std::shared_ptr<T>& data) {
+        std::uint32_t index = 0;
+        read_u32(index);
+        if(index >= deserialize_message_functions_.size()) {
+          throw std::runtime_error("Message type not registered for deserialization");
+        }
+        void* ptr = &data;
+        deserialize_message_functions_[index](ptr);
+      }
+
+      void read_message(std::weak_ptr<void>& data) {
+        std::shared_ptr<void> shared;
+        read_message(shared);
+        data = shared;
+      }
+
       void register_deserialize_typed_function(std::type_index type,
           std::function<void(void*)> deserialize_fn) {
         typed_indexes_[type] = deserialize_typed_functions_.size();
@@ -182,6 +227,23 @@ namespace serialization {
       void register_deserialize_typed_function() {
         auto type = std::type_index(typeid(T));
         register_deserialize_typed_function(type, [&reader = *this](void* ptr) {
+          std::shared_ptr<T>& shared = *((std::shared_ptr<T>*)ptr);
+          std::shared_ptr<T> data = std::make_shared<T>();
+          deserialize(reader, *data);
+          shared = data;
+        });
+      }
+
+      void register_deserialize_message_function(std::type_index type,
+          std::function<void(void*)> deserialize_fn) {
+        message_indexes_[type] = deserialize_message_functions_.size();
+        deserialize_message_functions_.push_back(std::move(deserialize_fn));
+      }
+
+      template <typename T>
+      void register_deserialize_message_function() {
+        auto type = std::type_index(typeid(T));
+        register_deserialize_message_function(type, [&reader = *this](void* ptr) {
           std::shared_ptr<T>& shared = *((std::shared_ptr<T>*)ptr);
           std::shared_ptr<T> data = std::make_shared<T>();
           deserialize(reader, *data);
@@ -269,6 +331,12 @@ namespace serialization {
 
       std::vector<std::function<void(void*)>> deserialize_typed_functions_;
       std::unordered_map<std::type_index, size_t> typed_indexes_;
+
+      std::vector<std::function<void(void*)>> deserialize_message_functions_;
+      std::unordered_map<std::type_index, size_t> message_indexes_;
+
+      std::vector<std::function<std::exception_ptr()>> deserialize_exception_functions_;
+      std::unordered_map<std::type_index, size_t> exception_read_indexes_;
 
       void read_raw(void* dest, std::size_t size) {
         if(cursor_ + size > source_.size()) {

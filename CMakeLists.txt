@@ -140,6 +140,13 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(serialization_flat_exception_ut src/test/serialization_flat_exception_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_flat_exception_ut PRIVATE src)
+  target_link_libraries(serialization_flat_exception_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_flat_exception_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   add_executable(serialization_compressed_generated_ut src/test/serialization_compressed_generated_ut.cpp ${IO_FILES})
   target_include_directories(serialization_compressed_generated_ut PRIVATE src)
   target_link_libraries(serialization_compressed_generated_ut PRIVATE Boost::ut)
@@ -225,6 +232,7 @@ if(NOT WASM)
   add_test(NAME serialization_flat_circular_ut COMMAND serialization_flat_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_flat_circular_writer_ut COMMAND serialization_flat_circular_writer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_flat_generated_ut COMMAND serialization_flat_generated_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_flat_exception_ut COMMAND serialization_flat_exception_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_compressed_generated_ut COMMAND serialization_compressed_generated_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_key_ut COMMAND serialization_key_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_key_circular_ut COMMAND serialization_key_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
