@@ -192,6 +192,13 @@ namespace serialization {
         }
       }
 
+      // Compressed graphs are polymorphic: deferred callback writes the type
+      // index via write_typed and dispatches to the registered function.
+      template <typename T>
+      WriteLater make_shared_write_later(std::shared_ptr<T> value) {
+        return [value, this]() { write_typed(value); };
+      }
+
       void register_serialize_typed_function(std::type_index type,
           std::function<void(void*)> serialize) {
         typed_indexes_[type] = serialize_typed_functions_.size();

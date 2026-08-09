@@ -170,10 +170,26 @@ namespace serialization {
       void write_rest() {
         while(!write_later_.empty()) {
           auto pair = write_later_.front();
+          // Per-frame size prefix: encoded_size = real_size + 1 (0 = sentinel).
+          // Reserved here, poked after the sub-frame body is complete.
+          std::size_t size_field = write_offset_;
+          write_u32(0);
+          std::size_t frame_start = write_offset_;
           pair.second();
+          std::uint32_t real_size = static_cast<std::uint32_t>(write_offset_ - frame_start);
+          std::uint32_t encoded_size = real_size + 1;
+          circular_buffer_poke(buffer_, size_field, &encoded_size, sizeof(encoded_size));
           written_pointers_.push_back(pair.first);
           write_later_.erase(write_later_.begin());
         }
+      }
+
+      // Flat graphs are homogeneous (all nodes type T): sub-frames carry no
+      // per-frame type index, only the per-frame size prefix written by
+      // write_rest. The deferred callback serializes the pointee directly.
+      template <typename T>
+      WriteLater make_shared_write_later(std::shared_ptr<T> value) {
+        return [value, this]() { serialize(*this, *value); };
       }
 
       void register_serialize_typed_function(std::type_index type,
@@ -238,6 +254,14 @@ namespace serialization {
 
       struct circular_buffer* buffer_ = nullptr;
       size_t write_offset_ = 0;
+
+      // Pre-register a shared_ptr as already-written so that self-references
+      // use negative back-reference deltas instead of duplicates. Used by
+      // the shared-graph root path (root is deref-serialized but must be
+      // discoverable by write_pointer for back-references).
+      void mark_written_pointer(std::shared_ptr<void> value) {
+        written_pointers_.push_back(std::move(value));
+      }
 
     private:
       struct Frame {

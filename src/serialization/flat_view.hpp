@@ -153,7 +153,6 @@ namespace serialization {
 
       bool is_circular() const { return kind_ == Kind::Circular; }
 
-      std::vector<std::shared_ptr<void>>& later_slots() { return later_slots_; }
       std::vector<std::shared_ptr<void>>& resolved() { return resolved_; }
 
       void bind_pointer_at(std::size_t abs_offset, std::shared_ptr<void> view) {
@@ -169,9 +168,18 @@ namespace serialization {
         return std::static_pointer_cast<flat_view<T>>(it->second);
       }
 
+      // Resolve a pointer delta to a flat_view in the pool. Negative deltas
+      // are back-references into resolved_ (frames bound before the current
+      // frame). Positive deltas are forward references into the pool, indexed
+      // relative to the current frame's position — mirroring the writer's
+      // write_later_ queue semantics:
+      //   - root (cur==0) is deref-serialized, so it is NOT in write_later_;
+      //     delta=+m -> the (m-1)-th child = pool[m].
+      //   - sub-frame (cur>=1) is the front of write_later_ during its own
+      //     serialization, so delta=+m -> pool[cur + m - 1] (m=1 -> self).
       template <class T>
       std::shared_ptr<flat_view<T>> resolve_delta(std::int32_t delta,
-          std::vector<std::shared_ptr<flat_view<T>>>& pool, std::size_t& pool_i) {
+          std::vector<std::shared_ptr<flat_view<T>>>& pool, std::size_t cur) {
         if(delta == 0) {
           return nullptr;
         }
@@ -180,20 +188,13 @@ namespace serialization {
             static_cast<std::ptrdiff_t>(resolved_.size()) + delta);
           return std::static_pointer_cast<flat_view<T>>(resolved_.at(index));
         }
-        std::size_t later_index = static_cast<std::size_t>(delta - 1);
-        while(later_slots_.size() <= later_index) {
-          if(pool_i >= pool.size()) {
-            throw std::runtime_error("flat pointer pool exhausted");
-          }
-          later_slots_.push_back(pool[pool_i++]);
+        std::size_t target = (cur == 0)
+          ? static_cast<std::size_t>(delta)
+          : cur + static_cast<std::size_t>(delta) - 1;
+        if(target >= pool.size()) {
+          throw std::runtime_error("flat pointer pool exhausted");
         }
-        if(!later_slots_[later_index]) {
-          if(pool_i >= pool.size()) {
-            throw std::runtime_error("flat pointer pool exhausted");
-          }
-          later_slots_[later_index] = pool[pool_i++];
-        }
-        return std::static_pointer_cast<flat_view<T>>(later_slots_[later_index]);
+        return std::static_pointer_cast<flat_view<T>>(pool[target]);
       }
 
     private:
@@ -205,7 +206,6 @@ namespace serialization {
       circular_flat_source circ_;
       std::size_t logical_len_ = 0;
       std::vector<std::shared_ptr<void>> resolved_;
-      std::vector<std::shared_ptr<void>> later_slots_;
       std::unordered_map<std::size_t, std::shared_ptr<void>> pointer_at_;
   };
 
@@ -261,20 +261,6 @@ namespace serialization {
         cps[i] = flat_load_cp(buf, width);
       }
       return cps;
-    }
-
-    template <class T>
-    std::size_t measure_frame(std::span<const std::uint8_t> bytes) {
-      return measure_frame<T>(span_flat_source(bytes), 0, bytes.size());
-    }
-
-    template <class T, FlatSource S>
-    std::size_t measure_frame(const S& source, std::size_t start, std::size_t end_limit) {
-      flat_buffer_reader<S> reader(source, start, end_limit);
-      reader.set_skip_pointers(true);
-      T tmp{};
-      deserialize(reader, tmp);
-      return reader.cursor() - start;
     }
 
   } // namespace flat_detail
@@ -561,9 +547,11 @@ namespace serialization {
         return get<dm>();
       }
 
-      // Used by flat_root_shared to bind pointer slots
+      // Used by flat_root_shared to bind pointer slots. cur is this frame's
+      // index in the pool (0 for root), used to resolve forward-reference
+      // deltas relative to the current frame.
       template <class PoolT>
-      void bind_pointers(std::vector<std::shared_ptr<flat_view<PoolT>>>& pool, std::size_t& pool_i) {
+      void bind_pointers(std::vector<std::shared_ptr<flat_view<PoolT>>>& pool, std::size_t cur) {
         walk_base<T>([&]<auto dm> {
           if constexpr(!is_member_ignored(dm)) {
             using MT = typename [:std::meta::type_of(dm):];
@@ -574,7 +562,7 @@ namespace serialization {
               std::uint8_t buf[4];
               session_->peek(abs, buf, 4);
               std::int32_t delta = flat_load_le<std::int32_t>(buf);
-              auto target = session_->template resolve_delta<PoolT>(delta, pool, pool_i);
+              auto target = session_->template resolve_delta<PoolT>(delta, pool, cur);
               session_->bind_pointer_at(abs, target);
             } else if constexpr (ContainerButNotString<MT> && !Binary<MT>) {
               using E = typename MT::value_type;
@@ -590,7 +578,7 @@ namespace serialization {
                   std::uint8_t buf[4];
                   session_->peek(elem + i * 4, buf, 4);
                   std::int32_t delta = flat_load_le<std::int32_t>(buf);
-                  auto target = session_->template resolve_delta<PoolT>(delta, pool, pool_i);
+                  auto target = session_->template resolve_delta<PoolT>(delta, pool, cur);
                   session_->bind_pointer_at(elem + i * 4, target);
                 }
               }
@@ -707,55 +695,63 @@ namespace serialization {
 
   namespace flat_detail {
 
+    // Build a flat_view graph over a session by walking per-frame size
+    // prefixes. Wire layout starting at body_offset:
+    //   [encoded_size_0 = N0+1 4B u32 LE][frame 0 = root]
+    //   [encoded_size_1 = N1+1][frame 1 = sub] ...
+    //   [0 sentinel 4B][payload]
+    // encoded_size_i = real_size_i + 1 (0 = sentinel). Root is always frame 0.
+    // No measure_frame: each frame's extent is read directly from its prefix,
+    // enabling true zero-copy graph construction.
     template <class T>
     std::shared_ptr<flat_view<T>> flat_root_shared_on_session(
-        std::shared_ptr<flat_session> session, std::size_t message_len) {
-      if(message_len < 4) {
-        throw std::runtime_error("flat_root_shared: buffer too small");
-      }
-      std::uint8_t dbuf[4];
-      flat_load_bytes(*session, 0, dbuf, 4);
-      std::int32_t root_delta = flat_load_le<std::int32_t>(dbuf);
-      if(root_delta == 0) {
-        return nullptr;
-      }
-      if(root_delta < 0) {
-        throw std::runtime_error("flat_root_shared: unexpected negative root delta");
-      }
-
+        std::shared_ptr<flat_session> session, std::size_t body_offset, std::size_t message_len) {
       std::vector<std::shared_ptr<flat_view<T>>> pool;
-      std::size_t cursor = 4;
+      std::size_t cursor = body_offset;
       while(cursor + 4 <= message_len) {
-        cursor += 4;
-        if(cursor >= message_len) break;
-        std::size_t frame_start = cursor;
-        std::size_t frame_size = measure_frame<T>(*session, frame_start, message_len);
-        std::size_t frame_end = frame_start + frame_size;
+        std::uint8_t sbuf[4];
+        session->peek(cursor, sbuf, 4);
+        std::uint32_t encoded_size = flat_load_le<std::uint32_t>(sbuf);
+        if(encoded_size == 0) {
+          break; // sentinel — frame list ends
+        }
+        std::uint32_t real_size = encoded_size - 1;
+        std::size_t frame_start = cursor + 4;
+        std::size_t frame_end = frame_start + real_size;
+        if(frame_end > message_len) {
+          throw std::runtime_error("flat_root_shared: frame exceeds message");
+        }
         pool.push_back(std::shared_ptr<flat_view<T>>(new flat_view<T>(session, frame_start, frame_end)));
         cursor = frame_end;
       }
       if(pool.empty()) {
-        throw std::runtime_error("flat_root_shared: no frames");
+        return nullptr;
       }
 
-      std::size_t pool_i = 0;
-      std::size_t root_i = static_cast<std::size_t>(root_delta - 1);
-      while(session->later_slots().size() <= root_i) {
-        session->later_slots().push_back(nullptr);
-      }
-      if(!session->later_slots()[root_i]) {
-        session->later_slots()[root_i] = pool[pool_i++];
-      }
-      auto root = std::static_pointer_cast<flat_view<T>>(session->later_slots()[root_i]);
-
-      while(!session->later_slots().empty()) {
-        auto cur = std::static_pointer_cast<flat_view<T>>(session->later_slots().front());
-        cur->bind_pointers(pool, pool_i);
-        session->later_slots().erase(session->later_slots().begin());
-        session->resolved().push_back(cur);
+      // Root is frame 0. Sub-frames (pool[1..]) back the deferred pointer
+      // deltas. resolved_ must mirror written_pointers_ at each frame's
+      // serialization time: the root is pre-registered (mark_written_pointer)
+      // BEFORE its body, so push root to resolved_ BEFORE binding it (enables
+      // root self-refs, delta=-1). Sub-frames are added to written_pointers_
+      // AFTER their body, so push them to resolved_ AFTER binding (so their
+      // own back-refs see only prior frames). Forward-reference deltas are
+      // resolved relative to the current frame's pool index (cur).
+      auto root = pool[0];
+      session->resolved().push_back(root);
+      root->bind_pointers(pool, 0);
+      for(std::size_t i = 1; i < pool.size(); ++i) {
+        pool[i]->bind_pointers(pool, i);
+        session->resolved().push_back(pool[i]);
       }
 
       return root;
+    }
+
+    // Back-compat overload: body_offset defaults to 0 (no type index prefix).
+    template <class T>
+    std::shared_ptr<flat_view<T>> flat_root_shared_on_session(
+        std::shared_ptr<flat_session> session, std::size_t message_len) {
+      return flat_root_shared_on_session<T>(session, 0, message_len);
     }
 
   } // namespace flat_detail

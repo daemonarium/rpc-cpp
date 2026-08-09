@@ -68,6 +68,17 @@ namespace serialization {
       std::size_t read_length() { throw std::runtime_error("Not implemented"); }
 
       using ReadLater = std::function<void(std::shared_ptr<void>&)>;
-  };
+
+      /*
+      * Build the deferred-deserialization callback for a shared_ptr field.
+      * Default throws — concrete readers override: compressed readers use
+      * read_typed (polymorphic, reads type index); flat readers deserialize
+      * the pointee directly (homogeneous graph, no per-frame type index).
+      */
+      template <typename T>
+      ReadLater make_shared_read_later() {
+        throw std::runtime_error("make_shared_read_later not implemented");
+      }
+    };
 
 }

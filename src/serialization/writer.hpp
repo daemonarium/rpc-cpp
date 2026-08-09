@@ -86,6 +86,17 @@ namespace serialization {
       using WriteLater = std::function<void()>;
 
       /*
+      * Build the deferred-serialization callback for a shared_ptr field.
+      * Default throws — concrete writers override: compressed writers use
+      * write_typed (polymorphic, with type index); flat writers serialize
+      * the pointee directly (homogeneous graph, no type index per sub-frame).
+      */
+      template <typename T>
+      WriteLater make_shared_write_later(std::shared_ptr<T> value) {
+        throw std::runtime_error("make_shared_write_later not implemented");
+      }
+
+      /*
       * If object was already serialized, write it index, 
       * if not, write next index after this object, and push to pointers stack
       */

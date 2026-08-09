@@ -54,9 +54,19 @@ namespace {
   std::string encode_flat_stream_shared(const std::shared_ptr<T>& value) {
     std::ostringstream os;
     flat_stream_writer w(os);
-    w.register_serialize_typed_function<T>();
-    serialize(w, value);
-    w.write_rest();
+    if(!value) {
+      w.write_u32(0); // sentinel only — null root
+      return os.str();
+    }
+    w.mark_written_pointer(value); // root: back-refs use negative deltas
+    std::size_t size_offset = w.position();
+    w.write_u32(0); // encoded_size_0 placeholder
+    std::size_t frame_start = w.position();
+    serialize(w, *value); // deref, no root delta
+    std::uint32_t real_size = static_cast<std::uint32_t>(w.position() - frame_start);
+    w.poke_u32(size_offset, real_size + 1);
+    w.write_rest(); // sub-frames with per-frame prefixes
+    w.write_u32(0); // sentinel
     return os.str();
   }
 
@@ -84,9 +94,21 @@ namespace {
   size_t write_flat_circular_shared(struct circular_buffer* cb, const std::shared_ptr<T>& value,
       size_t write_offset = 0) {
     flat_circular_buffer_writer w(cb, write_offset);
-    w.register_serialize_typed_function<T>();
-    serialize(w, value);
-    w.write_rest();
+    if(!value) {
+      w.write_u32(0); // sentinel only — null root
+      circular_buffer_commit_write(cb, w.write_offset_);
+      return w.write_offset_;
+    }
+    w.mark_written_pointer(value); // root: back-refs use negative deltas
+    std::size_t size_offset = w.write_offset_;
+    w.write_u32(0); // encoded_size_0 placeholder
+    std::size_t frame_start = w.write_offset_;
+    serialize(w, *value); // deref, no root delta
+    std::uint32_t real_size = static_cast<std::uint32_t>(w.write_offset_ - frame_start);
+    std::uint32_t encoded_size = real_size + 1;
+    circular_buffer_poke(cb, size_offset, &encoded_size, sizeof(encoded_size));
+    w.write_rest(); // sub-frames with per-frame prefixes
+    w.write_u32(0); // sentinel
     circular_buffer_commit_write(cb, w.write_offset_);
     return w.write_offset_;
   }

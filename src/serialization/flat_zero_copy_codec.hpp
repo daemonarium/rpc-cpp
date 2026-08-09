@@ -23,27 +23,28 @@ extern "C" {
 namespace serialization {
 
   // Flat-format codec with zero-copy dispatch: instead of materializing a T,
-  // dispatch builds a flat_view<T> over the socket input buffer and hands it
-  // to the handler. Compatible with socket_message_framing<Codec>.
+  // dispatch builds a flat_view<T> graph over the socket input buffer (via
+  // flat_root_shared_on_session, which walks per-frame size prefixes) and
+  // hands it to the handler. Compatible with socket_message_framing<Codec>.
   //
   // Flat wire format (body, after length prefix) — shared with
   // flat_materialized_codec so the two are interoperable:
-  //   [type index 4B u32 LE][root_frame_size 4B u32 LE][payload_size 4B u32 LE]
-  //   [root T frame][shared sub-frames][payload]
-  // root_frame_size lets dispatch construct flat_view<T> with the exact frame
-  // end (flat_view reads its CPS trailer from `end`). payload_size lets the
-  // handler locate the payload (it sits at the tail: [msg_len - payload_size,
-  // msg_len)) regardless of the shared sub-frames length.
+  //   [type index 4B u32 LE]
+  //   [encoded_size_0 = N0+1 4B u32 LE][root T frame]
+  //   [encoded_size_1 = N1+1][sub-frame 1] ...
+  //   [0 sentinel 4B]
+  //   [payload P B]
+  // encoded_size_i = real_size_i + 1 (0 = sentinel). dispatch walks the
+  // prefixes via flat_root_shared_on_session to build the full shared_ptr
+  // graph (root + all sub-frames) as flat_view objects — zero materialization.
+  // payload_size is derived as (msg_len - cursor) after the sentinel.
   //
   // Send path is identical to flat_materialized_codec. Receive path differs:
-  // reads the 12-byte header, builds flat_view<T>(session, body_offset,
-  // body_offset + root_frame_size), skips the reader to the payload, and
-  // invokes the handler with (flat_view<T>&, payload_size).
+  // reads type index + encoded_size_0, builds the flat_view graph, skips the
+  // reader to the payload, and invokes the handler with (flat_view<T>&,
+  // payload_size).
   //
-  // v1 limitations (documented in refactoring.md):
-  //  - shared_ptr graph fields appear as nullptr (full graph zero-copy needs
-  //    flat_root_shared_on_session with a body_offset variant — future krok 5c).
-  //  - flat_view is valid only during dispatch (before framing.skip_read).
+  // flat_view is valid only during dispatch (before framing.skip_read).
   class flat_zero_copy_codec {
     public:
       flat_zero_copy_codec(struct circular_buffer* input_buffer, struct circular_buffer* output_buffer)
@@ -59,26 +60,40 @@ namespace serialization {
         message_type_indexes_[std::type_index(typeid(T))] = index;
 
         dispatch_table_.push_back([this]() {
-          // After dispatch read the 3 u32s: index, root_frame_size, payload_size.
-          // cursor is now at body_offset (= 12).
-          size_t body_offset = reader_->cursor();
+          // dispatch already read: type index + encoded_size_0 (root prefix).
+          // cursor is now at body_offset = start of the root frame body.
+          size_t body_offset = reader_->cursor() - sizeof(std::uint32_t);
 
           auto session = std::make_shared<flat_session>(input_buffer_, current_msg_len_);
-          // flat_view must span exactly the root T frame: load_checkpoints reads
-          // the CPS trailer from `end`, so end = body_offset + root_frame_size.
-          flat_view<T> view(session, body_offset, body_offset + current_root_frame_size_);
+          // Walk per-frame prefixes to build the full shared_ptr graph (root
+          // + all sub-frames) as flat_view objects — zero materialization.
+          auto view = flat_detail::flat_root_shared_on_session<T>(
+            session, body_offset, current_msg_len_);
 
-          // Position the reader over the payload (tail of the message).
-          // payload starts at (msg_len - payload_size); skip from body_offset
-          // past the root frame + any shared sub-frames.
-          std::size_t payload_offset = current_msg_len_ - current_payload_size_;
-          if(payload_offset >= body_offset) {
-            reader_->skip(payload_offset - body_offset);
+          // Position the reader over the payload (after the sentinel).
+          // flat_root_shared_on_session walked prefixes+frames via session->peek
+          // (reader cursor unaffected). The reader already consumed type index
+          // + encoded_size_0, so it sits at body_offset + 4. Walk the same frame
+          // layout to find the sentinel, then skip the reader to just past it.
+          std::size_t reader_pos = reader_->cursor(); // body_offset + 4
+          std::size_t cursor = body_offset;
+          while(cursor + 4 <= current_msg_len_) {
+            std::uint8_t sbuf[4];
+            session->peek(cursor, sbuf, 4);
+            std::uint32_t encoded_size = flat_load_le<std::uint32_t>(sbuf);
+            if(encoded_size == 0) break; // sentinel
+            cursor += 4 + (encoded_size - 1);
           }
+          cursor += 4; // skip the sentinel
+          if(cursor > reader_pos) {
+            reader_->skip(cursor - reader_pos);
+          }
+
+          std::size_t payload_size = current_msg_len_ - cursor;
 
           auto it = message_handlers_.find(std::type_index(typeid(T)));
           if(it != message_handlers_.end()) {
-            it->second(&view, current_payload_size_);
+            it->second(view.get(), payload_size);
           }
           // Framing does circular_buffer_skip_read(msg_len) after dispatch
           // returns — flat_view/session must not outlive the handler.
@@ -116,10 +131,9 @@ namespace serialization {
           };
       }
 
-      // Write type index + serialized header. Identical to flat_materialized_codec:
-      // 12-byte header (index + root_frame_size placeholder + payload_size
-      // placeholder) + serialize + write_rest. root_frame_size is stamped here,
-      // payload_size is stamped by finalize_send (called from framing.commit_send).
+      // Write type index + per-frame size prefix + serialized root + shared
+      // sub-frames (each with its own per-frame prefix via write_rest) + 0
+      // sentinel. Identical send path to flat_materialized_codec.
       template <typename T>
       void write_message_header(const T& message) {
         auto type = std::type_index(typeid(T));
@@ -130,44 +144,42 @@ namespace serialization {
         size_t index = it->second;
         writer_->write_u32(static_cast<std::uint32_t>(index));
 
-        root_frame_size_field_offset_ = writer_->write_offset_;
-        writer_->write_u32(0);
-        payload_size_field_offset_ = writer_->write_offset_;
-        writer_->write_u32(0);
-
-        std::size_t frame_start = writer_->write_offset_;
+        std::size_t root_size_offset = writer_->write_offset_;
+        writer_->write_u32(0); // encoded_size_0 placeholder
+        std::size_t root_frame_start = writer_->write_offset_;
         serialize(*writer_, message);
-        std::size_t root_frame_size = writer_->write_offset_ - frame_start;
-        poke_u32(root_frame_size_field_offset_, static_cast<std::uint32_t>(root_frame_size));
+        std::uint32_t root_real_size =
+          static_cast<std::uint32_t>(writer_->write_offset_ - root_frame_start);
+        poke_u32(root_size_offset, root_real_size + 1);
 
-        writer_->write_rest();
+        writer_->write_rest(); // sub-frames with per-frame prefixes
+        writer_->write_u32(0); // sentinel
         payload_start_ = writer_->write_offset_;
       }
 
-      // Stamp payload_size into the header once payload (if any) is written.
-      // Called by framing.commit_send before the length prefix is committed.
-      void finalize_send() {
-        std::uint32_t payload_size =
-          static_cast<std::uint32_t>(writer_->write_offset_ - payload_start_);
-        poke_u32(payload_size_field_offset_, payload_size);
-      }
+      // No-op: sentinel is written in write_message_header, payload_size is
+      // derived by dispatch. Kept for socket_message_framing<Codec> compatibility.
+      void finalize_send() {}
 
       // Reset reader for a new message frame. Called by framing before dispatch.
       void reset_for_dispatch() {
         reader_->reset();
       }
 
-      // Read the 12-byte header (index + root_frame_size + payload_size) and
-      // dispatch to the registered handler. Throws std::runtime_error on unknown
-      // index. Framing is responsible for skipping msg_len bytes after dispatch
-      // (including on throw).
+      // Read type index + encoded_size_0, dispatch to the registered handler.
+      // Throws std::runtime_error on unknown index. Framing is responsible for
+      // skipping msg_len bytes after dispatch (including on throw).
       void dispatch(size_t msg_len) {
         current_msg_len_ = msg_len;
 
         std::uint32_t index;
         reader_->read_u32(index);
-        reader_->read_u32(current_root_frame_size_);
-        reader_->read_u32(current_payload_size_);
+        // Consume the root frame's per-frame size prefix (encoded_size_0).
+        // flat_root_shared_on_session re-reads it from body_offset, so we
+        // advance the reader past it here for cursor bookkeeping.
+        std::uint32_t root_encoded_size;
+        reader_->read_u32(root_encoded_size);
+        (void)root_encoded_size;
 
         if(index >= dispatch_table_.size()) {
           throw std::runtime_error("Unknown message type index: " + std::to_string(index));
@@ -189,11 +201,7 @@ namespace serialization {
       std::unordered_map<std::type_index, std::function<void(void*, size_t)>> message_handlers_;
 
       size_t current_msg_len_ = 0;
-      std::uint32_t current_root_frame_size_ = 0;
-      std::uint32_t current_payload_size_ = 0;
 
-      std::size_t root_frame_size_field_offset_ = 0;
-      std::size_t payload_size_field_offset_ = 0;
       std::size_t payload_start_ = 0;
 
       void poke_u32(std::size_t abs_offset, std::uint32_t value) {

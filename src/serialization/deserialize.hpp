@@ -145,9 +145,7 @@ namespace serialization {
   template <SharedPointer T, Reader R>
   requires(Reader<R> && SharedPointer<T>)
   void deserialize(R& reader, T& value) {
-    reader.read_pointer(value, [&reader](std::shared_ptr<void>& data) {      
-      reader.read_typed(data);
-    });
+    reader.read_pointer(value, reader.template make_shared_read_later<typename T::element_type>());
   }
 
   template <class T, Reader R, class B>

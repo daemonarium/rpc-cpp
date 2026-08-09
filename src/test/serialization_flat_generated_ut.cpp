@@ -338,10 +338,44 @@ namespace {
   std::string encode_flat_shared(const std::shared_ptr<Person>& value) {
     std::ostringstream os;
     flat_stream_writer w(os);
-    w.register_serialize_typed_function<Person>();
-    serialize(w, value);
+    if(!value) {
+      w.write_u32(0); // sentinel only — null root
+      return os.str();
+    }
+    // Pre-register the root so self-references use negative back-reference
+    // deltas instead of creating duplicate sub-frames.
+    w.mark_written_pointer(value);
+    // Root frame with per-frame size prefix (encoded = real_size + 1).
+    std::size_t size_offset = w.position();
+    w.write_u32(0); // placeholder for encoded_size_0
+    std::size_t frame_start = w.position();
+    serialize(w, *value); // deref, no root delta
+    std::uint32_t real_size = static_cast<std::uint32_t>(w.position() - frame_start);
+    w.poke_u32(size_offset, real_size + 1);
+    // Sub-frames: each wrapped with its own per-frame prefix by write_rest.
     w.write_rest();
+    w.write_u32(0); // sentinel terminates the frame list
     return os.str();
+  }
+
+  // Deserialize a shared_ptr graph encoded by encode_flat_shared (new wire
+  // format: [encoded_size_0][root][encoded_size_i][sub-i]...[0 sentinel]).
+  std::shared_ptr<Person> decode_flat_shared(const std::string& bytes) {
+    std::istringstream is(bytes);
+    flat_stream_reader r(is);
+    std::uint32_t root_encoded_size = 0;
+    r.read_u32(root_encoded_size); // consume root prefix (or sentinel if null)
+    if(root_encoded_size == 0) {
+      return nullptr; // null root
+    }
+    auto out = std::make_shared<Person>();
+    r.mark_read_pointer(out); // root: back-refs (delta=-1) resolve to it
+    deserialize(r, *out); // deref
+    r.read_rest(); // sub-frames (each prefix consumed inside)
+    std::uint32_t sentinel = 1;
+    r.read_u32(sentinel);
+    expect(eq(sentinel, 0u));
+    return out;
   }
 
 }
@@ -373,12 +407,7 @@ int main() {
       std::string bytes = encode_flat_shared(root);
 
       {
-        std::istringstream is(bytes);
-        flat_stream_reader r(is);
-        r.register_deserialize_typed_function<Person>();
-        std::shared_ptr<Person> out;
-        deserialize(r, out);
-        r.read_rest();
+        auto out = decode_flat_shared(bytes);
         // Canonical check: re-encode must match (topology + values preserved).
         expect(eq(encode_flat_shared(out), bytes));
         std::map<const Person*, const Person*> seen;
@@ -399,17 +428,31 @@ int main() {
           force_near_seam(cb, bytes.size() / 3);
         }
         flat_circular_buffer_writer cw(cb, 0);
-        cw.register_serialize_typed_function<Person>();
-        serialize(cw, root);
-        cw.write_rest();
+        // Pre-register root for back-references.
+        cw.mark_written_pointer(root);
+        // Root frame with per-frame size prefix (new wire format).
+        std::size_t size_offset = cw.write_offset_;
+        cw.write_u32(0); // placeholder for encoded_size_0
+        std::size_t frame_start = cw.write_offset_;
+        serialize(cw, *root); // deref, no root delta
+        std::uint32_t real_size = static_cast<std::uint32_t>(cw.write_offset_ - frame_start);
+        std::uint32_t encoded_size = real_size + 1;
+        circular_buffer_poke(cb, size_offset, &encoded_size, sizeof(encoded_size));
+        cw.write_rest(); // sub-frames with per-frame prefixes
+        cw.write_u32(0); // sentinel
         circular_buffer_commit_write(cb, cw.write_offset_);
 
         circular_flat_source src(cb);
         flat_buffer_reader<circular_flat_source> r(src);
-        r.register_deserialize_typed_function<Person>();
-        std::shared_ptr<Person> out;
-        deserialize(r, out);
-        r.read_rest();
+        std::uint32_t root_encoded_size = 0;
+        r.read_u32(root_encoded_size); // consume root prefix
+        auto out = std::make_shared<Person>();
+        r.mark_read_pointer(out); // root: back-refs (delta=-1) resolve to it
+        deserialize(r, *out); // deref
+        r.read_rest(); // sub-frames
+        std::uint32_t sentinel = 1;
+        r.read_u32(sentinel);
+        expect(eq(sentinel, 0u));
         expect(eq(encode_flat_shared(out), bytes));
         std::map<const Person*, const Person*> seen;
         expect(static_cast<bool>(person_graph_equal(root, out, seen)));

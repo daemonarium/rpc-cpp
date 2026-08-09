@@ -185,7 +185,12 @@ namespace serialization {
           pair.second();
           written_pointers_.push_back(pair.first);
           write_later_.erase(write_later_.begin());
-        } 
+        }
+      }
+
+      template <typename T>
+      WriteLater make_shared_write_later(std::shared_ptr<T> value) {
+        return [value, this]() { write_typed(value); };
       }
 
       void register_serialize_typed_function(std::type_index type, 

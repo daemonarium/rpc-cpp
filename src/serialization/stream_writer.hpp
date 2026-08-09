@@ -175,14 +175,21 @@ namespace serialization {
 
       void save_offset() { /* ignore */ }
       
-      void write_rest() {        
+      void write_rest() {
         debug("write_rest %zd", write_later_.size());
         while(!write_later_.empty()) {
-          auto pair = write_later_.front();          
+          auto pair = write_later_.front();
           pair.second();
           written_pointers_.push_back(pair.first);
           write_later_.erase(write_later_.begin());
-        } 
+        }
+      }
+
+      // Compressed graphs are polymorphic: deferred callback writes the type
+      // index via write_typed and dispatches to the registered function.
+      template <typename T>
+      WriteLater make_shared_write_later(std::shared_ptr<T> value) {
+        return [value, this]() { write_typed(value); };
       }
 
       void register_serialize_typed_function(std::type_index type, 

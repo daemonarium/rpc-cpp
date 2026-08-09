@@ -124,9 +124,7 @@ namespace serialization {
   template <class T, Writer W>
   requires(SharedPointer<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
-    writer.write_pointer(value, [value, &writer]{
-      writer.write_typed(value);      
-    });
+    writer.write_pointer(value, writer.template make_shared_write_later<typename T::element_type>(value));
   }
 
   template <class T, Writer W>

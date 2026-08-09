@@ -100,6 +100,43 @@ namespace {
     return told < 0 ? storage->size() : static_cast<std::size_t>(told);
   }
 
+  // New flat shared-graph wire format:
+  //   [encoded_size_0 = N0+1 4B][root frame]
+  //   [encoded_size_i = Ni+1][sub-frame i] ...
+  //   [0 sentinel 4B]
+  std::string encode_flat_shared(const std::shared_ptr<Person>& value) {
+    std::ostringstream os;
+    flat_stream_writer w(os);
+    w.mark_written_pointer(value); // root: back-refs use negative deltas
+    std::size_t size_offset = w.position();
+    w.write_u32(0); // encoded_size_0 placeholder
+    std::size_t frame_start = w.position();
+    serialize(w, *value); // deref, no root delta
+    std::uint32_t real_size = static_cast<std::uint32_t>(w.position() - frame_start);
+    w.poke_u32(size_offset, real_size + 1);
+    w.write_rest(); // sub-frames with per-frame prefixes
+    w.write_u32(0); // sentinel
+    return os.str();
+  }
+
+  std::shared_ptr<Person> decode_flat_shared(const std::string& bytes) {
+    std::istringstream is(bytes);
+    flat_stream_reader r(is);
+    std::uint32_t root_encoded_size = 0;
+    r.read_u32(root_encoded_size); // consume root prefix (or sentinel if null)
+    if(root_encoded_size == 0) {
+      return nullptr; // null root
+    }
+    auto out = std::make_shared<Person>();
+    r.mark_read_pointer(out); // root: back-refs (delta=-1) resolve to it
+    deserialize(r, *out); // deref
+    r.read_rest(); // sub-frames
+    std::uint32_t sentinel = 1;
+    r.read_u32(sentinel);
+    expect(eq(sentinel, 0u));
+    return out;
+  }
+
 }
 
 int main() {
@@ -343,18 +380,8 @@ int main() {
     a->friends.push_back(nullptr);
     b->friends.push_back(a);
 
-    std::ostringstream os;
-    flat_stream_writer w(os);
-    w.register_serialize_typed_function<Person>();
-    serialize(w, a);
-    w.write_rest();
-
-    std::istringstream is(os.str());
-    flat_stream_reader r(is);
-    r.register_deserialize_typed_function<Person>();
-    std::shared_ptr<Person> out;
-    deserialize(r, out);
-    r.read_rest();
+    std::string bytes = encode_flat_shared(a);
+    auto out = decode_flat_shared(bytes);
 
     expect(out != nullptr);
     expect(eq(out->name, std::string{"A"}));
@@ -374,19 +401,8 @@ int main() {
     a->friends.push_back(a);
     a->friends.push_back(nullptr);
 
-    std::ostringstream os;
-    flat_stream_writer w(os);
-    w.register_serialize_typed_function<Person>();
-    serialize(w, a);
-    w.write_rest();
-    std::string bytes = os.str();
-
-    std::istringstream is(bytes);
-    flat_stream_reader r(is);
-    r.register_deserialize_typed_function<Person>();
-    std::shared_ptr<Person> out;
-    deserialize(r, out);
-    r.read_rest();
+    std::string bytes = encode_flat_shared(a);
+    auto out = decode_flat_shared(bytes);
 
     expect(out != nullptr);
     expect(eq(out->name, std::string{"Self"}));
@@ -395,12 +411,9 @@ int main() {
     expect(out->friends[1].get() == out.get());
     expect(out->friends[2] == nullptr);
 
-    std::ostringstream os2;
-    flat_stream_writer w2(os2);
-    w2.register_serialize_typed_function<Person>();
-    serialize(w2, out);
-    w2.write_rest();
-    expect(eq(os2.str(), bytes));
+    // Canonical: re-encode must match.
+    std::string bytes2 = encode_flat_shared(out);
+    expect(eq(bytes2, bytes));
   };
 
   "flat_view getters"_test = [] {
@@ -457,12 +470,7 @@ int main() {
 
     auto storage = std::make_shared<std::vector<std::uint8_t>>();
     {
-      std::ostringstream os;
-      flat_stream_writer w(os);
-      w.register_serialize_typed_function<Person>();
-      serialize(w, a);
-      w.write_rest();
-      std::string s = os.str();
+      std::string s = encode_flat_shared(a);
       storage->assign(s.begin(), s.end());
     }
 

@@ -55,10 +55,41 @@ namespace {
   std::string flat_bytes_shared(const std::shared_ptr<T>& value) {
     std::ostringstream os;
     flat_stream_writer w(os);
-    w.register_serialize_typed_function<T>();
-    serialize(w, value);
-    w.write_rest();
+    if(!value) {
+      w.write_u32(0); // sentinel only — null root
+      return os.str();
+    }
+    w.mark_written_pointer(value); // root: back-refs use negative deltas
+    std::size_t size_offset = w.position();
+    w.write_u32(0); // encoded_size_0 placeholder
+    std::size_t frame_start = w.position();
+    serialize(w, *value); // deref, no root delta
+    std::uint32_t real_size = static_cast<std::uint32_t>(w.position() - frame_start);
+    w.poke_u32(size_offset, real_size + 1);
+    w.write_rest(); // sub-frames with per-frame prefixes
+    w.write_u32(0); // sentinel
     return os.str();
+  }
+
+  // Deserialize a shared_ptr graph encoded by flat_bytes_shared (new wire
+  // format: [encoded_size_0][root][encoded_size_i][sub-i]...[0 sentinel]).
+  template <typename T>
+  std::shared_ptr<T> decode_circular_shared(struct circular_buffer* cb, size_t len) {
+    circular_flat_source src(cb);
+    flat_buffer_reader<circular_flat_source> r(src);
+    std::uint32_t root_encoded_size = 0;
+    r.read_u32(root_encoded_size); // consume root prefix (or sentinel if null)
+    if(root_encoded_size == 0) {
+      return nullptr; // null root
+    }
+    auto out = std::make_shared<T>();
+    r.mark_read_pointer(out); // root: back-refs (delta=-1) resolve to it
+    deserialize(r, *out); // deref
+    r.read_rest(); // sub-frames
+    std::uint32_t sentinel = 1;
+    r.read_u32(sentinel);
+    expect(eq(sentinel, 0u));
+    return out;
   }
 
   void force_read_near_end(struct circular_buffer* cb, size_t pad) {
@@ -354,12 +385,7 @@ int main() {
     for(bool wrap : {false, true}) {
       struct circular_buffer* cb = place_bytes(bytes, wrap);
       expect(cb != nullptr);
-      circular_flat_source src(cb);
-      flat_buffer_reader<circular_flat_source> r(src);
-      r.register_deserialize_typed_function<Person>();
-      std::shared_ptr<Person> out;
-      deserialize(r, out);
-      r.read_rest();
+      auto out = decode_circular_shared<Person>(cb, bytes.size());
       expect(out != nullptr);
       expect(eq(out->name, std::string{"A"}));
       expect(eq(out->friends.size(), std::size_t{2}));
@@ -455,12 +481,7 @@ int main() {
         continue;
       }
       circular_buffer_write(cb, msg.data(), msg.size());
-      circular_flat_source src(cb);
-      flat_buffer_reader<circular_flat_source> r(src);
-      r.register_deserialize_typed_function<Person>();
-      std::shared_ptr<Person> out;
-      deserialize(r, out);
-      r.read_rest();
+      auto out = decode_circular_shared<Person>(cb, msg.size());
       expect(out != nullptr);
       expect(eq(out->name, std::string{"A"}));
       expect(out->friends[0]->friends[0].get() == out.get());
@@ -494,7 +515,7 @@ int main() {
     }
   };
 
-  "circular measure_frame parity"_test = [] {
+  "circular deserialize parity"_test = [] {
     Person p;
     p.name = "X";
     p.age = 1;
@@ -504,12 +525,19 @@ int main() {
     std::string bytes = encode_flat(p);
     auto span_src = span_flat_source(
       std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()));
-    std::size_t a = flat_detail::measure_frame<Person>(span_src, 0, bytes.size());
+    auto measure = [](auto& src, std::size_t len) {
+      flat_buffer_reader<std::decay_t<decltype(src)>> reader(src, 0, len);
+      reader.set_skip_pointers(true);
+      Person tmp{};
+      deserialize(reader, tmp);
+      return reader.cursor();
+    };
+    std::size_t a = measure(span_src, bytes.size());
 
     {
       struct circular_buffer* cb = place_bytes(bytes, false);
       circular_flat_source csrc(cb);
-      std::size_t b = flat_detail::measure_frame<Person>(csrc, 0, bytes.size());
+      std::size_t b = measure(csrc, bytes.size());
       expect(eq(a, b));
       expect(eq(a, bytes.size()));
       circular_buffer_destroy(cb);
@@ -518,11 +546,11 @@ int main() {
       struct circular_buffer* cb = place_bytes(bytes, true);
       expect(circular_buffer_region_contiguous(cb, 0, bytes.size()) == 0);
       circular_flat_source csrc(cb);
-      std::size_t b = flat_detail::measure_frame<Person>(csrc, 0, bytes.size());
+      std::size_t b = measure(csrc, bytes.size());
       expect(eq(a, b));
       auto mat = flat_peek_range(cb, 0, bytes.size());
       auto mat_src = span_flat_source(std::span<const std::uint8_t>(mat.data(), mat.size()));
-      expect(eq(a, flat_detail::measure_frame<Person>(mat_src, 0, mat.size())));
+      expect(eq(a, measure(mat_src, mat.size())));
       circular_buffer_destroy(cb);
     }
   };

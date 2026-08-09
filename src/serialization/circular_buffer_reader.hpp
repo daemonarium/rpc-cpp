@@ -287,6 +287,13 @@ namespace serialization {
         }
       }
 
+      // Compressed graphs are polymorphic: deferred callback reads the type
+      // index via read_typed and dispatches to the registered function.
+      template <typename T>
+      ReadLater make_shared_read_later() {
+        return [this](std::shared_ptr<void>& data) { read_typed(data); };
+      }
+
     public:
       struct circular_buffer* buffer_;
       size_t read_offset_;

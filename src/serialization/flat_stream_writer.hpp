@@ -157,10 +157,28 @@ namespace serialization {
       void write_rest() {
         while(!write_later_.empty()) {
           auto pair = write_later_.front();
+          // Per-frame size prefix: encoded_size = real_size + 1 (0 = sentinel).
+          std::size_t size_field = pos_;
+          write_u32(0);
+          std::size_t frame_start = pos_;
           pair.second();
+          std::uint32_t real_size = static_cast<std::uint32_t>(pos_ - frame_start);
+          std::uint32_t encoded_size = real_size + 1;
+          std::uint8_t buf[4];
+          flat_store_le(buf, encoded_size);
+          std::streampos saved = stream_.tellp();
+          stream_.seekp(static_cast<std::streamoff>(size_field));
+          stream_.write(reinterpret_cast<const char*>(buf), 4);
+          stream_.seekp(saved);
           written_pointers_.push_back(pair.first);
           write_later_.erase(write_later_.begin());
         }
+      }
+
+      // Flat graphs are homogeneous: sub-frames carry no per-frame type index.
+      template <typename T>
+      WriteLater make_shared_write_later(std::shared_ptr<T> value) {
+        return [value, this]() { serialize(*this, *value); };
       }
 
       void register_serialize_typed_function(std::type_index type,
@@ -224,6 +242,26 @@ namespace serialization {
       }
 
       std::size_t position() const { return pos_; }
+
+      // Pre-register a shared_ptr as already-written so that self-references
+      // (and any later references) to it use negative back-reference deltas
+      // instead of creating duplicate sub-frames. Used by the shared-graph
+      // root path: the root is deref-serialized (no write_pointer) but must
+      // still be discoverable by write_pointer for back-references.
+      void mark_written_pointer(std::shared_ptr<void> value) {
+        written_pointers_.push_back(std::move(value));
+      }
+
+      // Poke a u32 LE value at a previously reserved stream position. Used to
+      // back-patch per-frame size prefixes after the frame body is complete.
+      void poke_u32(std::size_t abs_offset, std::uint32_t value) {
+        std::uint8_t buf[4];
+        flat_store_le(buf, value);
+        std::streampos saved = stream_.tellp();
+        stream_.seekp(static_cast<std::streamoff>(abs_offset));
+        stream_.write(reinterpret_cast<const char*>(buf), 4);
+        stream_.seekp(saved);
+      }
 
     private:
       struct Frame {

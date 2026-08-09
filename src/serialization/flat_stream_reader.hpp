@@ -234,6 +234,14 @@ namespace serialization {
         deserialize_message_functions_.push_back(std::move(deserialize_fn));
       }
 
+      // Pre-register a deserialized object as already-read so that back-
+      // references (negative deltas) to it resolve correctly. Used by the
+      // shared-graph root path: the root is deref-deserialized (no read_pointer)
+      // but must be discoverable by read_pointer for back-references.
+      void mark_read_pointer(std::shared_ptr<void> value) {
+        read_pointers_.push_back(std::move(value));
+      }
+
       template <typename T>
       void register_deserialize_message_function() {
         auto type = std::type_index(typeid(T));
@@ -289,6 +297,13 @@ namespace serialization {
           // push_back new later-entries and reallocate. Self-refs append assigns
           // onto front().first during the callback; collect them afterwards.
           ReadLater callbacks = std::move(read_later_.front().second);
+          // Consume the per-frame size prefix (encoded = real_size + 1) written
+          // by the writer's write_rest. The materialized reader reads fields
+          // sequentially, so the size itself is not needed — only consumed to
+          // keep the cursor aligned with the sub-frame body.
+          std::uint32_t encoded_size = 0;
+          read_u32(encoded_size);
+          (void)encoded_size;
           std::shared_ptr<void> result;
           callbacks(result);
           auto assigns = std::move(read_later_.front().first);
@@ -298,6 +313,18 @@ namespace serialization {
           read_pointers_.push_back(std::move(result));
           read_later_.erase(read_later_.begin());
         }
+      }
+
+      // Flat graphs are homogeneous (all nodes type T): sub-frames carry no
+      // per-frame type index, so the deferred callback deserializes the
+      // pointee directly via the compile-time element type.
+      template <typename T>
+      ReadLater make_shared_read_later() {
+        return [this](std::shared_ptr<void>& data) {
+          auto typed = std::make_shared<T>();
+          deserialize(*this, *typed);
+          data = typed;
+        };
       }
 
     private:
