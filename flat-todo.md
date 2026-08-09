@@ -7,7 +7,7 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 - [x] Trailer: `K==0` → brak; `K>0` → `[format][cps…][format]` (duplikat na końcu)
 - [x] format bits 0–1: szerokość offsetu (0→u8, 1→u16, 2→u32)
 - [x] Pointer: fixed i32 LE delta; bez `save_offset`; ciała w `write_rest`
-- [x] Out of scope v1: `view.name()`, RPC na flat, ewolucja schematu
+- [x] Out of scope v1: `view.name()`, ewolucja schematu
 
 ## Pliki
 
@@ -82,3 +82,4 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 ## Później
 
 - [ ] `view.name()` codegen / injection
+- [ ] Dalsza deduplikacja flat writer/reader (`begin_frame`/`end_frame`/`write_typed`/`register_*` do CRTP bazy)

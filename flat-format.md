@@ -97,6 +97,24 @@ Jak compressed:
 3. Odczyt: `read_pointer` / `read_rest`.
 4. `flat_view`: `get` na `shared_ptr<U>` → `shared_ptr<flat_view<U>>` (wspólna tabela identity).
 
+### Wire format wiadomości top-level (RPC / message channel)
+
+Wiadomość top-level na sockecie używa per-frame size prefix + 0 sentinel (zamiast typed index w `write_rest`):
+
+```text
+[length prefix 4B][type index 4B u32 LE]
+                 [encoded_size_0 = N0+1 4B u32 LE][frame 0 = root T N0 B]
+                 [encoded_size_1 = N1+1][frame 1 sub N1 B] ...
+                 [0 sentinel 4B]
+                 [payload P B]
+```
+
+- `encoded_size_i = real_size_i + 1` (zero = sentinel, pusta ramka → encoded 1).
+- Root jest deref-serializowany (`serialize(w, *value)`, nie `write_pointer`) i pre-rejestrowany w `written_pointers_` — self-ref roota (delta=-1) używa back-reference.
+- Sub-frame w grafie: `[encoded_size_i][frame i]` (brak type index, graf homogeniczny T). `write_rest` opakowuje każdy sub-frame per-frame prefixem.
+- `payload_size = msg_len - cursor` po sentinel — dispatch walkuje prefiksy do sentinel, `reader.skip` do payload.
+- Compressed bez zmian: `[index uvarint64][serialize][write_rest][payload]`.
+
 ---
 
 ## Wyliczanie pozycji pola (seek)
@@ -184,5 +202,4 @@ Zapis: staging bajtów kluczy + deskryptory → sort → emit SoA (wartości ser
 - Ewolucja schematu / field id
 - Współdzielone vtable FB
 - `view.name()` codegen
-- RPC wyłącznie na flat
 - Rygorystyczna walidacja OOB

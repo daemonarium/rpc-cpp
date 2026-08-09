@@ -47,6 +47,31 @@ Szczegóły: **[compressed-format.md](compressed-format.md)**, **[flat-format.md
                                   flat_view)                   dump)
 ```
 
+### Warstwa codec (format-agnostyczny framing + RPC)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  socket_message_framing<Codec>  — framing: length-prefix,   │
+│    flush/drain, dispatch → codec                             │
+├──────────────────────────────────────────────────────────────┤
+│  Codec (policy): compressed_codec | flat_materialized_codec │
+│                  | flat_zero_copy_codec                      │
+│    dziedziczą z message_codec_base (CRTP) /                  │
+│    flat_message_codec_base (CRTP, dla flat)                 │
+├──────────────────────────────────────────────────────────────┤
+│  socket_rpc_server<Codec> / socket_rpc_client<Codec>         │
+│    dziedziczą socket_rpc_*_base<Codec> (CRTP) +              │
+│    rpc_process_call_mixin / rpc_call_mixin (CRTP)            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Trzy implementacje codec:
+- `compressed_codec` — format compressed, materializacja (obecne zachowanie).
+- `flat_materialized_codec` — format flat, materializacja do `T`.
+- `flat_zero_copy_codec` — format flat, handler dostaje `flat_view<T>&` (zero-copy).
+
+Aliasy: `compressed_socket_rpc_server`/`client` = `socket_rpc_*<compressed_codec>`.
+
 Dodatkowe elementy:
 
 | Plik | Rola |
@@ -200,11 +225,29 @@ dw.write_rest();
 Na serializacji oparte są:
 
 - typy wiadomości: `rpc_request`, `rpc_response`, `rpc_error` (`rpc.hpp`, adnotacja `[[=message()]]`),
-- `rpc_client` / `rpc_server` — serialize request/response,
-- `socket_message_channel` — warstwa wiadomości na sockecie,
-- `socket_rpc_client` / `socket_rpc_server` — RPC nad kanałem.
+- `rpc_client` / `rpc_server` — serialize request/response (templatki na `Reader`/`Writer`),
+- `socket_message_framing<Codec>` — format-agnostyczny framing (length-prefix, flush/drain, dispatch),
+- `socket_rpc_server<Codec>` / `socket_rpc_client<Codec>` — RPC nad framingiem, templatki na codec.
 
-Szczegóły refaktoringu: `TODO.md`.
+### Codec
+
+Codec to policy łącząca format (reader/writer) z dispatchem (tabele typów, handlerów). Trzy implementacje:
+
+| Codec | Format | Handler `on_message<T>` | Reader args RPC |
+|-------|--------|----------------------|-----------------|
+| `compressed_codec` | compressed | `void(T&, size_t)` | materializacja |
+| `flat_materialized_codec` | flat | `void(T&, size_t)` | materializacja |
+| `flat_zero_copy_codec` | flat | `void(flat_view<T>&, size_t)` | materializacja (args), zero-copy (odpowiedzi/one-way) |
+
+`flat_zero_copy_codec` używa `handler_signature<T> = flat_view<T>&` dla wiadomości użytkownika, ale control messages RPC (`rpc_request`/`rpc_response`/`rpc_error`) są zawsze materializowane przez dedykowaną ścieżkę `on_control_message`.
+
+### CRTP deduplikacja
+
+- `message_codec_base<Derived, Reader, Writer>` — wspólne tabele, `dispatch`, `register_*`, `invoke_handler`, `handler_signature`, control message path.
+- `flat_message_codec_base<Derived>` — wspólne `read_type_index` (u32+prefix), `write_message_header<T>`, `poke_u32`, `make_materialized_dispatch_handler`.
+- `flat_writer_base<Derived>` / `flat_reader_base<Derived>` — wspólne `mark_*_pointer`, `write_pointer`/`read_pointer`, `write_rest`/`read_rest` (per-frame prefix loop), tabele.
+- `rpc_process_call_mixin<Derived>` / `rpc_call_mixin<Derived>` — wspólne `process_call` / `call` / `call_method`.
+- `socket_rpc_server_base<Codec>` / `socket_rpc_client_base<Codec>` — wspólne control/registry/send.
 
 ---
 
@@ -263,14 +306,34 @@ src/serialization/
   flat_stream_writer.hpp / flat_stream_reader.hpp
   flat_circular_buffer_writer.hpp
   flat_buffer_reader.hpp / flat_view.hpp
+  flat_writer_base.hpp / flat_reader_base.hpp          (CRTP bazy flat)
   key_codec.hpp, key_stream_*.hpp, key_circular_buffer_*.hpp
   debug_writer.hpp
   annotations.hpp, type_concepts.hpp, type_registry.hpp
-  rpc*.hpp, socket_*.hpp
+  rpc.hpp, rpc_server.hpp, rpc_client.hpp
+  rpc_process_call_mixin.hpp / rpc_call_mixin.hpp      (CRTP mixiny RPC)
+  message_codec_base.hpp                                (CRTP baza codec)
+  flat_message_codec_base.hpp                           (CRTP baza flat codec)
+  compressed_codec.hpp / flat_materialized_codec.hpp / flat_zero_copy_codec.hpp
+  socket_message_framing.hpp                            (format-agnostyczny framing)
+  socket_message_channel.hpp                            (aliasy compressed/flat)
+  socket_rpc_server_base.hpp / socket_rpc_client_base.hpp  (CRTP bazy RPC)
+  socket_rpc_server.hpp / socket_rpc_client.hpp        (cienkie pochodne + aliasy)
 src/io/circular_buffer.h
 src/test/serialization_flat_ut.cpp
 src/test/serialization_flat_circular_ut.cpp
 src/test/serialization_flat_circular_writer_ut.cpp
+src/test/serialization_flat_generated_ut.cpp
+src/test/serialization_flat_exception_ut.cpp
+src/test/serialization_compressed_generated_ut.cpp
+src/test/compressed_codec_ut.cpp
+src/test/flat_materialized_codec_ut.cpp
+src/test/flat_zero_copy_codec_ut.cpp
+src/test/flat_zero_copy_message_channel_ut.cpp
+src/test/flat_zero_copy_rpc_ut.cpp
+src/test/flat_rpc_loopback_ut.cpp
+src/test/flat_socket_rpc_ut.cpp
+src/test/socket_rpc_ut.cpp
 src/test/serialization_key_ut.cpp
 src/test/serialization_key_circular_ut.cpp
 src/test/io_circular_buffer_ut.cpp
