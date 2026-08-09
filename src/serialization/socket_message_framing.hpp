@@ -55,6 +55,14 @@ namespace serialization {
       template <typename T>
       void register_message_type() { codec_->template register_message_type<T>(); }
 
+      // Control-message path: always materialized regardless of codec.
+      // Forwards to the codec's register_control_message_type / on_control_message.
+      template <typename T>
+      void register_control_message_type() { codec_->template register_control_message_type<T>(); }
+
+      template <typename T, typename Handler>
+      void on_control_message(Handler handler) { codec_->template on_control_message<T>(std::move(handler)); }
+
       template <typename T>
       void register_exception_type() { codec_->template register_exception_type<T>(); }
 

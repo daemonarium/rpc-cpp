@@ -49,6 +49,14 @@ namespace serialization {
   class flat_zero_copy_codec
     : public flat_message_codec_base<flat_zero_copy_codec> {
     public:
+      // User messages are dispatched zero-copy as flat_view<T>&. Control
+      // messages (rpc_request/response/error) bypass this via
+      // on_control_message / register_control_message_type, which use the
+      // materialized dispatch builder (make_materialized_dispatch_handler)
+      // through the make_control_dispatch_handler override below.
+      template <typename T>
+      using handler_signature = flat_view<T>&;
+
       flat_zero_copy_codec(struct circular_buffer* input_buffer, struct circular_buffer* output_buffer)
         : input_buffer_(input_buffer),
           reader_(std::make_unique<flat_buffer_reader<circular_flat_source>>(circular_flat_source(input_buffer))),
@@ -91,6 +99,14 @@ namespace serialization {
           // Framing does circular_buffer_skip_read(msg_len) after dispatch
           // returns — flat_view/session must not outlive the handler.
         };
+      }
+
+      // Control messages must be materialized even in the zero-copy codec.
+      // Override the base default (which would delegate to the flat_view
+      // make_dispatch_handler) to use the shared materialized dispatch builder.
+      template <typename T>
+      std::function<void()> make_control_dispatch_handler() {
+        return this->template make_materialized_dispatch_handler<T>();
       }
 
       // Handler without payload: payload (if any) is ignored, framing skips it.

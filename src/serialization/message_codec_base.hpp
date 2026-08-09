@@ -38,6 +38,16 @@ namespace serialization {
       using reader_type = Reader;
       using writer_type = Writer;
 
+      // Handler signature trait. Defaults to materialized (T&). A codec that
+      // dispatches user messages zero-copy (flat_zero_copy_codec) hides this
+      // alias with `template <typename T> using handler_signature = flat_view<T>&;`.
+      // socket_rpc_server<Codec>::on_message uses Codec::handler_signature<T> to
+      // expose the codec-appropriate user-message handler API, while control
+      // messages (rpc_request/response/error) always use the materialized
+      // on_control_message path below.
+      template <typename T>
+      using handler_signature = T&;
+
     protected:
       std::vector<std::function<void()>> dispatch_table_;
       std::unordered_map<std::type_index, size_t> message_type_indexes_;
@@ -88,6 +98,51 @@ namespace serialization {
         message_type_indexes_[std::type_index(typeid(T))] = index;
 
         dispatch_table_.push_back(derived().template make_dispatch_handler<T>());
+      }
+
+      // --- Control-message path (always materialized) ---------------------
+      // Control messages (rpc_request/rpc_response/rpc_error) must always be
+      // materialized regardless of codec, because RPC dispatch reads their
+      // fields by value. flat_zero_copy_codec overrides
+      // make_control_dispatch_handler<T> to use the shared materialized
+      // dispatch builder (flat_message_codec_base::make_materialized_dispatch_handler)
+      // instead of its flat_view make_dispatch_handler. For compressed and
+      // flat_materialized codecs the default make_control_dispatch_handler
+      // delegates to make_dispatch_handler (already materialized), so
+      // control registration is equivalent to register_message_type there.
+
+      // Register a control message type: like register_message_type but the
+      // dispatch entry is built by make_control_dispatch_handler<T>().
+      template <typename T>
+      void register_control_message_type() {
+        derived().writer().template register_serialize_message_function<T>();
+
+        size_t index = dispatch_table_.size();
+        message_type_indexes_[std::type_index(typeid(T))] = index;
+
+        dispatch_table_.push_back(derived().template make_control_dispatch_handler<T>());
+      }
+
+      // Register a materialized handler for a control message. Always
+      // void(T&, size_t), independent of the codec's user-message
+      // handler_signature. Sets message_handlers_ directly (does not
+      // delegate to the derived on_message, whose signature may differ).
+      template <typename T>
+      void on_control_message(std::function<void(T&, size_t)> handler) {
+        message_handlers_[std::type_index(typeid(T))] =
+          [h = std::move(handler)](void* ptr, size_t payload_size) {
+            T& msg = *reinterpret_cast<T*>(ptr);
+            h(msg, payload_size);
+          };
+      }
+
+      // Build the dispatch lambda for a control message. Default: delegate to
+      // the codec's make_dispatch_handler<T>() (already materialized for
+      // compressed/flat_materialized). flat_zero_copy overrides this to use
+      // the materialized dispatch builder instead of its flat_view one.
+      template <typename T>
+      std::function<void()> make_control_dispatch_handler() {
+        return derived().template make_dispatch_handler<T>();
       }
 
       // Dispatch one message: read the type index (format-specific), bounds-

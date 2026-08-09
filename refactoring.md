@@ -135,6 +135,7 @@ Templatowane na codec, dziedziczą
 | 5e. Deduplikacja flat codec (CRTP baza pośrednia) | **Done** | `flat_message_codec_base.hpp` (nowy, CRTP baza pośrednia dziedzicząca `message_codec_base`: `read_type_index` (u32+prefix), `write_message_header<T>`, `poke_u32`, `payload_start_`), `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (dziedziczą z `flat_message_codec_base`, usunięto byte-identical `read_type_index`/`write_message_header`/`poke_u32`/`payload_start_`; `on_message` zostaje w pochodnych — flat_zero_copy nie dziedziczy `void(T&)`); testy: bez zmian |
 | 5f. Deduplikacja flat writer/reader (CRTP baza) | **Done** | `flat_writer_base.hpp` + `flat_reader_base.hpp` (nowe, CRTP bazy dziedziczące `writer`/`reader`: `mark_*_pointer`, `make_shared_*_later<T>`, `write_pointer`/`read_pointer` (+weak), `write_rest`/`read_rest` per-frame prefix loop, tabele `written_pointers_`/`write_later_`/`read_pointers_`/`read_later_`/`skip_pointers_`, hooki `current_pos()`/`poke_u32()`), `flat_stream_writer.hpp` + `flat_circular_buffer_writer.hpp` (dziedziczą `flat_writer_base`, dodano `current_pos()`/`poke_u32()`, usunięto duplikat), `flat_stream_reader.hpp` + `flat_buffer_reader.hpp` (dziedziczą `flat_reader_base`, usunięto duplikat); testy: bez zmian, wszystkie 22 executów przechodzą |
 | 6. Stemplować RPC na codec | **Done** | `rpc_process_call_mixin.hpp` (nowy, CRTP mixin: 4 warianty `process_call` z `if constexpr`/constraints, woła `derived().send_response`/`send_error` bez writera), `rpc_call_mixin.hpp` (nowy, CRTP mixin: 4 overloads `call`/`call_method`, lambdy wołają `derived().reader()`, wysyłka `derived().send_request_impl`/`send_method_request_impl`, tabele `response_handlers_`/`last_request_id_`), `rpc_server.hpp` (dziedziczy mixin, `current_writer_`, `send_response`/`send_error` bez parametru writera), `rpc_client.hpp` (dziedziczy mixin, `current_reader_`, `reader()`, `send_request_impl`/`send_method_request_impl`), `socket_rpc_server.hpp` → templatka `socket_rpc_server<Codec>` + mixin, alias `compressed_socket_rpc_server`, `socket_rpc_client.hpp` → templatka `socket_rpc_client<Codec>` + mixin, alias `compressed_socket_rpc_client`, `message_codec_base.hpp` (+`reader_type`/`writer_type`); testy: `socket_rpc_ut.cpp` (alias), `flat_rpc_loopback_ut.cpp` (nowy, `rpc_server`/`rpc_client` na flat stream), `flat_socket_rpc_ut.cpp` (nowy, `socket_rpc_server`/`socket_rpc_client<flat_materialized_codec>`); wszystkie 24 executów przechodzą |
+| 7. flat zero-copy RPC | **Done** | `message_codec_base.hpp` (+`handler_signature<T>`/`on_control_message`/`register_control_message_type`/`make_control_dispatch_handler`), `flat_message_codec_base.hpp` (+`make_materialized_dispatch_handler`), `flat_materialized_codec.hpp` (`make_dispatch_handler` → delegacja), `flat_zero_copy_codec.hpp` (+`handler_signature=flat_view<T>&`, +`make_control_dispatch_handler` override), `socket_message_framing.hpp` (+forward control API), `socket_rpc_server_base.hpp` (nowy, CRTP baza control/registry/send), `socket_rpc_server.hpp` (cienka pochodna, `on_message` przez trait), `socket_rpc_client_base.hpp` (nowy, CRTP baza), `socket_rpc_client.hpp` (cienka pochodna); testy: `flat_zero_copy_rpc_ut.cpp` (nowy, 10 testów), regresja 24 executów, WASM 6 celów |
 
 Po kroku 5c `flat_zero_copy_codec` obsługuje **full zero-copy grafów `shared_ptr`**:
 handler dostaje `flat_view<T>&` z powiązanymi polami `shared_ptr<U>` (graf
@@ -230,6 +231,38 @@ zero-copy) jest wspólny i interoperacyjny: per-frame size prefix + 0 sentinel
    zmian, testy bez modyfikacji, wszystkie 22 executów przechodzą. **[DONE]**
 6. **Stemplować `socket_rpc_server`/`socket_rpc_client` na codec**, usunąć
    duplikat `process_call`. **[DONE]**
+7. **flat zero-copy RPC (Propozycja 2: CRTP split + trait)** — wpięcie
+   `flat_zero_copy_codec` do `socket_rpc_server`/`socket_rpc_client` bez
+   duplikacji kodu i bez łamania kontraktu compressed/flat_materialized.
+   - `message_codec_base.hpp` (+addytywne API: `handler_signature<T>` = `T&`
+     domyślnie, `on_control_message<T>(void(T&,size_t))` zawsze materializowane,
+     `register_control_message_type<T>()`, `make_control_dispatch_handler<T>()`
+     domyślnie = `make_dispatch_handler`).
+   - `flat_message_codec_base.hpp` (+`make_materialized_dispatch_handler<T>()`
+     — wyciągnięte z `flat_materialized_codec`: deserialize T, read_rest,
+     konsumuj sentinel, invoke_handler).
+   - `flat_materialized_codec.hpp` (`make_dispatch_handler` → delegacja do
+     `make_materialized_dispatch_handler`, brak duplikatu).
+   - `flat_zero_copy_codec.hpp` (+`handler_signature<T>` = `flat_view<T>&`
+     name-hiding, +`make_control_dispatch_handler` override →
+     `make_materialized_dispatch_handler` — control-messages materializowane).
+   - `socket_message_framing.hpp` (+forward `register_control_message_type`/
+     `on_control_message` do codec).
+   - `socket_rpc_server_base.hpp` (nowy, CRTP baza: control/registry/send,
+     `on_control_message<rpc_request>`, `register_control_message_type` x3,
+     `handle_rpc_request`/`send_response`/`send_error`).
+   - `socket_rpc_server.hpp` (cienka pochodna: `on_message<T>` przez
+     `Codec::handler_signature<T>` — `void(T&)` dla compressed/flat_materialized,
+     `void(flat_view<T>&)` dla flat_zero_copy).
+   - `socket_rpc_client_base.hpp` (nowy, CRTP baza: control/registry/send,
+     `on_control_message<rpc_response>`/`<rpc_error>`, `reader()`,
+     `send_request_impl`/`send_method_request_impl`).
+   - `socket_rpc_client.hpp` (cienka pochodna: `on_message<T>` przez trait).
+   - Testy: `flat_zero_copy_rpc_ut.cpp` (nowy, 10 testów: RPC roundtrip int/
+     string/void/error/typed-error/invalid-id/sequential/large-string +
+     user `on_message<custom_msg>(void(flat_view<T>&))` zero-copy +
+     custom_msg z payload); regresja 24 executów nietknięta; WASM build
+     6 celów OK (konsumenci `compressed_socket_rpc_*` bez zmian). **[DONE]**
 
 Krok 1 jest bezpieczny i daje samodzielny zysk; krok 2 najlepiej robić razem
 z krokiem 3.

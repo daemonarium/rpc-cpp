@@ -47,20 +47,7 @@ namespace serialization {
 
       template <typename T>
       std::function<void()> make_dispatch_handler() {
-        return [this]() {
-          T msg;
-          deserialize(*reader_, msg);
-          reader_->read_rest();
-          // Consume the 0 sentinel that terminates the frame list.
-          std::uint32_t sentinel = 1;
-          reader_->read_u32(sentinel);
-          if(sentinel != 0) {
-            throw std::runtime_error("flat_materialized_codec: expected frame sentinel, got " + std::to_string(sentinel));
-          }
-
-          size_t payload_size = this->current_msg_len_ - reader_->cursor();
-          this->template invoke_handler<T>(&msg, payload_size);
-        };
+        return this->template make_materialized_dispatch_handler<T>();
       }
 
       template <typename T>

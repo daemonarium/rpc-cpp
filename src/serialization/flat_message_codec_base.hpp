@@ -74,11 +74,34 @@ namespace serialization {
           static_cast<std::uint32_t>(this->derived().writer().write_offset_ - root_frame_start);
         poke_u32(root_size_offset, root_real_size + 1);
 
-        // Sub-frames: each wrapped with its own per-frame size prefix by
-        // write_rest. Then a 0 sentinel terminates the frame list.
-        this->derived().writer().write_rest();
-        this->derived().writer().write_u32(0); // sentinel
-        payload_start_ = this->derived().writer().write_offset_;
+      // Sub-frames: each wrapped with its own per-frame size prefix by
+      // write_rest. Then a 0 sentinel terminates the frame list.
+      this->derived().writer().write_rest();
+      this->derived().writer().write_u32(0); // sentinel
+      payload_start_ = this->derived().writer().write_offset_;
+      }
+
+      // Materialized dispatch handler shared by flat_materialized_codec (for
+      // all messages) and flat_zero_copy_codec (for control messages only).
+      // Deserializes T from the flat reader, consumes the 0 sentinel that
+      // terminates the frame list, then invokes invoke_handler<T> with the
+      // materialized T and the derived payload_size. This is the flat
+      // counterpart of compressed_codec::make_dispatch_handler.
+      template <typename T>
+      std::function<void()> make_materialized_dispatch_handler() {
+        return [this]() {
+          T msg;
+          deserialize(this->derived().reader(), msg);
+          this->derived().reader().read_rest();
+          // Consume the 0 sentinel that terminates the frame list.
+          std::uint32_t sentinel = 1;
+          this->derived().reader().read_u32(sentinel);
+          if(sentinel != 0) {
+            throw std::runtime_error("flat codec: expected frame sentinel, got " + std::to_string(sentinel));
+          }
+          size_t payload_size = this->current_msg_len_ - this->derived().reader().cursor();
+          this->template invoke_handler<T>(&msg, payload_size);
+        };
       }
 
     protected:
