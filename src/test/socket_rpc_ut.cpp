@@ -57,8 +57,8 @@ namespace {
 
   // Helper: execute one RPC call roundtrip
   void rpc_roundtrip(socket_loopback_pair& sockets,
-                     socket_rpc_client& client,
-                     socket_rpc_server& server) {
+                     compressed_socket_rpc_client& client,
+                     compressed_socket_rpc_server& server) {
     // client → server
     sockets.transfer(sockets.s1, sockets.s0);
     server.handle_data();
@@ -73,8 +73,8 @@ int main() {
 
   "socket rpc call with int return"_test = [] {
     socket_loopback_pair sockets;
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();
@@ -98,8 +98,8 @@ int main() {
 
   "socket rpc call with string return"_test = [] {
     socket_loopback_pair sockets;
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();
@@ -123,8 +123,8 @@ int main() {
 
   "socket rpc void call"_test = [] {
     socket_loopback_pair sockets;
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();
@@ -145,8 +145,8 @@ int main() {
 
   "socket rpc error propagation"_test = [] {
     socket_loopback_pair sockets;
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();
@@ -176,8 +176,8 @@ int main() {
 
   "socket rpc typed exception propagation"_test = [] {
     socket_loopback_pair sockets;
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();
@@ -212,8 +212,8 @@ int main() {
 
   "socket rpc invalid function id"_test = [] {
     socket_loopback_pair sockets;
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();
@@ -234,8 +234,8 @@ int main() {
 
   "socket rpc multiple sequential calls"_test = [] {
     socket_loopback_pair sockets;
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();
@@ -261,8 +261,8 @@ int main() {
 
   "socket rpc large string data"_test = [] {
     socket_loopback_pair sockets(16384); // larger buffers for big data
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();
@@ -287,8 +287,8 @@ int main() {
 
   "socket rpc mixed with custom messages"_test = [] {
     socket_loopback_pair sockets;
-    socket_rpc_server server(sockets.s0);
-    socket_rpc_client client(sockets.s1);
+    compressed_socket_rpc_server server(sockets.s0);
+    compressed_socket_rpc_client client(sockets.s1);
 
     server.register_basic_types();
     client.register_basic_types();

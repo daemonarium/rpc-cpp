@@ -34,6 +34,10 @@ namespace serialization {
   // dispatch, finalize_send) is provided by this base.
   template <typename Derived, typename Reader, typename Writer>
   class message_codec_base {
+    public:
+      using reader_type = Reader;
+      using writer_type = Writer;
+
     protected:
       std::vector<std::function<void()>> dispatch_table_;
       std::unordered_map<std::type_index, size_t> message_type_indexes_;

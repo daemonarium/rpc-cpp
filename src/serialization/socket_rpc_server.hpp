@@ -1,7 +1,10 @@
 #pragma once
 
 #include "socket_message_channel.hpp"
+#include "socket_message_framing.hpp"
+#include "compressed_codec.hpp"
 #include "rpc_server_registry.hpp"
+#include "rpc_process_call_mixin.hpp"
 #include "serialize.hpp"
 #include "promise.hpp"
 #include "rpc.hpp"
@@ -11,28 +14,40 @@
 
 namespace serialization {
 
-  class socket_rpc_server : public rpc_server_registry<circular_buffer_reader, circular_buffer_writer, socket_rpc_server> {
+  // RPC server over a socket, format-agnostic via Codec.
+  //
+  // Codec must be a socket-compatible codec (compressed_codec,
+  // flat_materialized_codec, ...). The reader/writer types are taken from
+  // Codec::reader_type / Codec::writer_type so rpc_server_registry and
+  // rpc_process_call_mixin see the right types.
+  template <typename Codec>
+  class socket_rpc_server
+    : public rpc_server_registry<typename Codec::reader_type, typename Codec::writer_type, socket_rpc_server<Codec>>,
+      public rpc_process_call_mixin<socket_rpc_server<Codec>> {
     public:
+      using reader_type = typename Codec::reader_type;
+      using writer_type = typename Codec::writer_type;
+
       socket_rpc_server(uint32_t socket_id)
         : channel_(socket_id) {
 
-        channel_.on_message<rpc_request>([this](rpc_request& req, size_t payload_size) {
+        channel_.template on_message<rpc_request>([this](rpc_request& req, size_t payload_size) {
           handle_rpc_request(req, payload_size);
         });
       }
       ~socket_rpc_server() {}
 
       void register_basic_types() {
-        channel_.register_message_type<rpc_request>();
-        channel_.register_message_type<rpc_response>();
-        channel_.register_message_type<rpc_error>();
-        channel_.register_exception_type<unknown_exception>();
+        channel_.template register_message_type<rpc_request>();
+        channel_.template register_message_type<rpc_response>();
+        channel_.template register_message_type<rpc_error>();
+        channel_.template register_exception_type<unknown_exception>();
       }
 
       // Forward registration methods from rpc_server_registry
       template <typename T>
       void register_recursive(T value) {
-        rpc_server_registry<circular_buffer_reader, circular_buffer_writer, socket_rpc_server>::register_recursive(value, *this);
+        rpc_server_registry<reader_type, writer_type, socket_rpc_server<Codec>>::register_recursive(value, *this);
       }
 
       void handle_data() {
@@ -40,17 +55,18 @@ namespace serialization {
       }
 
       // Expose channel for user-defined message types
-      template <typename T> void register_message_type() { channel_.register_message_type<T>(); }
-      template <typename T> void on_message(std::function<void(T&)> handler) { channel_.on_message<T>(handler); }
-      template <typename T> void on_message(std::function<void(T&, size_t)> handler) { channel_.on_message<T>(handler); }
-      template <typename T> void send_message(const T& msg) { channel_.send_message(msg); }
+      template <typename T> void register_message_type() { channel_.template register_message_type<T>(); }
+      template <typename T> void on_message(std::function<void(T&)> handler) { channel_.template on_message<T>(handler); }
+      template <typename T> void on_message(std::function<void(T&, size_t)> handler) { channel_.template on_message<T>(handler); }
+      template <typename T> void send_message(const T& msg) { channel_.template send_message<T>(msg); }
 
-      socket_message_channel& channel() { return channel_; }
+      auto& channel() { return channel_; }
 
     private:
-      friend class rpc_server_registry<circular_buffer_reader, circular_buffer_writer, socket_rpc_server>;
+      friend class rpc_server_registry<reader_type, writer_type, socket_rpc_server<Codec>>;
+      friend class rpc_process_call_mixin<socket_rpc_server<Codec>>;
 
-      socket_message_channel channel_;
+      socket_message_framing<Codec> channel_;
 
       void handle_rpc_request(rpc_request& req, size_t payload_size) {
         if(req.function_id >= this->functions_.size()) {
@@ -75,114 +91,18 @@ namespace serialization {
       }
 
       void send_error(uint64_t request_id, const std::exception& e) {
-        auto& writer = channel_.begin_send(rpc_error{request_id});        
+        auto& writer = channel_.begin_send(rpc_error{request_id});
         try {
-          writer.write_exception(e);          
+          writer.write_exception(e);
         } catch(unknown_exception& ex) {
-          auto rt = unknown_exception(std::string("Unknown exception: ") + e.what());          
-          writer.write_exception(rt);          
+          auto rt = unknown_exception(std::string("Unknown exception: ") + e.what());
+          writer.write_exception(rt);
         }
         writer.write_rest();
         channel_.commit_send();
       }
-
-      // process_call: non-void, non-promise return type
-      template <typename Rt>
-      requires(!PromisePointer<Rt>)
-      inline std::shared_ptr<serialization::promise<void>> process_call(
-        std::function<Rt()> function, circular_buffer_writer& /*unused*/, uint64_t request_id
-      ) {
-        try {
-          Rt result = function();
-          send_response(request_id, result);
-        } catch(const std::exception& e) {
-          send_error(request_id, e);
-        } catch(...) {
-          send_error(request_id, unknown_exception("Unknown exception"));
-        }
-        return serialization::promise<void>::resolved();
-      }
-
-      // process_call: promise return type (async)
-      template <typename Rt>
-      requires(PromisePointer<Rt>)
-      inline std::shared_ptr<serialization::promise<void>> process_call(
-        std::function<Rt()> function, circular_buffer_writer& /*unused*/, uint64_t request_id
-      ) {
-        auto p = std::make_shared<serialization::promise<void>>();
-        try {
-          Rt result = function();
-          result->handle([this, request_id, p](typename Rt::element_type::promised_type& result) {
-            send_response(request_id, result);
-            p->resolve();
-          }, [this, request_id, p](std::exception_ptr exception) {
-            try {
-              std::rethrow_exception(exception);
-            } catch(const std::exception& e) {
-              send_error(request_id, e);
-            } catch(...) {
-              send_error(request_id, unknown_exception("Unknown exception"));
-            }
-            p->resolve();
-          });
-        } catch(const std::exception& e) {
-          send_error(request_id, e);
-          p->resolve();
-        } catch(...) {
-          send_error(request_id, unknown_exception("Unknown exception"));
-          p->resolve();
-        }
-        return p;
-      }
-
-      // process_call: void return type
-      template <>
-      inline std::shared_ptr<serialization::promise<void>> process_call<void>(
-        std::function<void()> function, circular_buffer_writer& /*unused*/, uint64_t request_id
-      ) {
-        try {
-          function();
-          send_response(request_id);
-        } catch(const std::exception& e) {
-          send_error(request_id, e);
-        } catch(...) {
-          send_error(request_id, unknown_exception("Unknown exception"));
-        }
-        return serialization::promise<void>::resolved();
-      }
-
-      // process_call: promise<void> return type (async void)
-      template <>
-      inline std::shared_ptr<serialization::promise<void>> process_call<std::shared_ptr<serialization::promise<void>>>(
-        std::function<std::shared_ptr<serialization::promise<void>>()> function,
-        circular_buffer_writer& /*unused*/,
-        uint64_t request_id
-      ) {
-        auto p = std::make_shared<serialization::promise<void>>();
-        try {
-          std::shared_ptr<serialization::promise<void>> result = function();
-          result->handle([this, request_id, p]() {
-            send_response(request_id);
-            p->resolve();
-          }, [this, request_id, p](std::exception_ptr exception) {
-            try {
-              std::rethrow_exception(exception);
-            } catch(const std::exception& e) {
-              send_error(request_id, e);
-            } catch(...) {
-              send_error(request_id, unknown_exception("Unknown exception"));
-            }
-            p->resolve();
-          });
-        } catch(const std::exception& e) {
-          send_error(request_id, e);
-          p->resolve();
-        } catch(...) {
-          send_error(request_id, unknown_exception("Unknown exception"));
-          p->resolve();
-        }
-        return p;
-      }
   };
 
-}
+  using compressed_socket_rpc_server = socket_rpc_server<compressed_codec>;
+
+} // namespace serialization
