@@ -213,9 +213,18 @@ if(NOT WASM)
   )
 
   # Generator for TSV reference data (value + binary) for TS tests
+  # Usage: generate_serialization_tsv [out.tsv]
+  #        generate_serialization_tsv --flat [out.tsv]
+  # Note: cpp-rpc/src/test/serialization_reference.tsv is stale leftover — use ts-rpc/tests/ copies.
   add_executable(generate_serialization_tsv src/test/generate_serialization_tsv.cpp ${IO_FILES})
   target_include_directories(generate_serialization_tsv PRIVATE src)
   set_target_properties(generate_serialization_tsv PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(generate_serialization_complex_tsv src/test/generate_serialization_complex_tsv.cpp ${IO_FILES})
+  target_include_directories(generate_serialization_complex_tsv PRIVATE src)
+  set_target_properties(generate_serialization_complex_tsv PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
