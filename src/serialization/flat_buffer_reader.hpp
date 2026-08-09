@@ -309,6 +309,18 @@ namespace serialization {
       const Source& source() const { return source_; }
       std::size_t cursor() const { return cursor_; }
 
+      // Reset reader to the start of the current readable region for a new
+      // message frame. Preserves registered deserialize functions. Called by
+      // codec.reset_for_dispatch() between messages.
+      void reset() {
+        cursor_ = 0;
+        frame_start_ = 0;
+        frame_end_ = source_.size();
+        frames_.clear();
+        read_later_.clear();
+        // read_pointers_ retained (shared_ptr keepalive, matches compressed_codec)
+      }
+
     private:
       struct Frame {
         std::size_t start;

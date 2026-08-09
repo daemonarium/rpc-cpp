@@ -161,6 +161,13 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(flat_materialized_codec_ut src/test/flat_materialized_codec_ut.cpp ${IO_FILES})
+  target_include_directories(flat_materialized_codec_ut PRIVATE src)
+  target_link_libraries(flat_materialized_codec_ut PRIVATE Boost::ut)
+  set_target_properties(flat_materialized_codec_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   # --- Serialization tests (key format) ---
 
   add_executable(serialization_key_ut src/test/serialization_key_ut.cpp ${IO_FILES})
@@ -242,6 +249,7 @@ if(NOT WASM)
   add_test(NAME serialization_flat_exception_ut COMMAND serialization_flat_exception_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_compressed_generated_ut COMMAND serialization_compressed_generated_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME compressed_codec_ut COMMAND compressed_codec_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_materialized_codec_ut COMMAND flat_materialized_codec_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_key_ut COMMAND serialization_key_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_key_circular_ut COMMAND serialization_key_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_cb_ut COMMAND serialization_cb_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)

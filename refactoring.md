@@ -120,18 +120,33 @@ Templatowane na codec, dziedziczą
 | **Przeciw** | codec niesie sporo (dispatch + handlers + reader/writer + exception); dwie sygnatury handlera; trzeba dokończyć API flat |
 | **Czytelność** | wysoka — każdy z 3 codec to mały, samodzielny byt; framing to trywialna pętla |
 
+## Stan realizacji
+
+| Krok | Status | Pliki |
+|------|--------|-------|
+| 1. Parity API flat | **Done** | `flat_stream_writer.hpp`, `flat_circular_buffer_writer.hpp`, `flat_stream_reader.hpp`, `flat_buffer_reader.hpp` (dodano `register_serialize_message_function`, `write_message`, `register_serialize_exception_function`, `write_exception`, `register_deserialize_exception_function`, `read_exception`); test: `serialization_flat_exception_ut.cpp` |
+| 2. Wydzielenie framing | **Done** | `socket_message_framing.hpp` (nowy, `socket_message_framing<Codec>`) |
+| 3. Wydzielenie `compressed_codec` | **Done** | `compressed_codec.hpp` (nowy), `socket_message_channel.hpp` → alias `socket_message_framing<compressed_codec>`; test: `compressed_codec_ut.cpp` |
+| 4. `flat_materialized_codec` | **Done** | `flat_materialized_codec.hpp` (nowy), `flat_buffer_reader.hpp` (+`reset()`), `socket_message_channel.hpp` (+alias `flat_socket_message_channel`); test: `flat_materialized_codec_ut.cpp` |
+| 5. `flat_zero_copy_codec` | Pending | — |
+| 6. Stemplować RPC na codec | Pending | — |
+
+Po kroku 4 `socket_message_framing<flat_materialized_codec>` działa dla wiadomości
+(rejestracja, dispatch, payload, wyjątki, typy dynamiczne). RPC (`socket_rpc_server`/
+`socket_rpc_client`) nadal używa `compressed` — stemplowanie RPC to krok 6.
+
 ## Kolejność wdrożenia
 
-1. **Parity API flat** (prework, niezależny krok).
+1. **Parity API flat** (prework, niezależny krok). **[DONE]**
    - flat writers: `register_serialize_message_function<T>()`,
      `register_serialize_exception_function<T>()`, `write_exception(e)`
    - flat readers: `register_deserialize_exception_function<T>()`,
      `read_exception()`
 2. **Wydzielić framing** z obecnego `socket_message_channel` — nawet bez codec,
-   sam framing jako klasa bazowa to czysty zysk.
-3. **Wydzielić `compressed_codec`** — opakować obecną logikę, zachować behavior.
+   sam framing jako klasa bazowa to czysty zysk. **[DONE]**
+3. **Wydzielić `compressed_codec`** — opakować obecną logikę, zachować behavior. **[DONE]**
 4. **Dodać `flat_materialized_codec`** — powinno być prawie kopia compressed z
-   innymi reader/writer.
+   innymi reader/writer. **[DONE]**
 5. **Dodać `flat_zero_copy_codec`** — tylko tu pojawia się
    `flat_root_circular<T>` w dispatchu.
 6. **Stemplować `socket_rpc_server`/`socket_rpc_client` na codec**, usunąć
@@ -139,3 +154,4 @@ Templatowane na codec, dziedziczą
 
 Krok 1 jest bezpieczny i daje samodzielny zysk; krok 2 najlepiej robić razem
 z krokiem 3.
+
