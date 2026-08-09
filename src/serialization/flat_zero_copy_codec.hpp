@@ -4,7 +4,7 @@
 #include "flat_buffer_reader.hpp"
 #include "flat_circular_buffer_writer.hpp"
 #include "flat_source.hpp"
-#include "message_codec_base.hpp"
+#include "flat_message_codec_base.hpp"
 #include "serialize.hpp"
 #include "deserialize.hpp"
 
@@ -40,32 +40,19 @@ namespace serialization {
   // graph (root + all sub-frames) as flat_view objects — zero materialization.
   // payload_size is derived as (msg_len - cursor) after the sentinel.
   //
-  // Send path is identical to flat_materialized_codec. Receive path differs:
-  // reads type index + encoded_size_0, builds the flat_view graph, skips the
-  // reader to the payload, and invokes the handler with (flat_view<T>&,
-  // payload_size).
+  // Send path (read_type_index / write_message_header / poke_u32 /
+  // payload_start_) comes from flat_message_codec_base. Receive path differs:
+  // builds the flat_view graph, skips the reader to the payload, and invokes
+  // the handler with (flat_view<T>&, payload_size).
   //
   // flat_view is valid only during dispatch (before framing.skip_read).
   class flat_zero_copy_codec
-    : public message_codec_base<flat_zero_copy_codec,
-        flat_buffer_reader<circular_flat_source>, flat_circular_buffer_writer> {
+    : public flat_message_codec_base<flat_zero_copy_codec> {
     public:
       flat_zero_copy_codec(struct circular_buffer* input_buffer, struct circular_buffer* output_buffer)
         : input_buffer_(input_buffer),
           reader_(std::make_unique<flat_buffer_reader<circular_flat_source>>(circular_flat_source(input_buffer))),
           writer_(std::make_unique<flat_circular_buffer_writer>(output_buffer, 0)) {}
-
-      std::uint32_t read_type_index() {
-        std::uint32_t index;
-        reader_->read_u32(index);
-        // Consume the root frame's per-frame size prefix (encoded_size_0).
-        // flat_root_shared_on_session re-reads it from body_offset, so we
-        // advance the reader past it here for cursor bookkeeping.
-        std::uint32_t root_encoded_size;
-        reader_->read_u32(root_encoded_size);
-        (void)root_encoded_size;
-        return index;
-      }
 
       template <typename T>
       std::function<void()> make_dispatch_handler() {
@@ -74,11 +61,11 @@ namespace serialization {
           // cursor is now at body_offset = start of the root frame body.
           size_t body_offset = reader_->cursor() - sizeof(std::uint32_t);
 
-          auto session = std::make_shared<flat_session>(input_buffer_, current_msg_len_);
+          auto session = std::make_shared<flat_session>(input_buffer_, this->current_msg_len_);
           // Walk per-frame prefixes to build the full shared_ptr graph (root
           // + all sub-frames) as flat_view objects — zero materialization.
           auto view = flat_detail::flat_root_shared_on_session<T>(
-            session, body_offset, current_msg_len_);
+            session, body_offset, this->current_msg_len_);
 
           // Position the reader over the payload (after the sentinel).
           // flat_root_shared_on_session walked prefixes+frames via session->peek
@@ -87,7 +74,7 @@ namespace serialization {
           // layout to find the sentinel, then skip the reader to just past it.
           std::size_t reader_pos = reader_->cursor(); // body_offset + 4
           std::size_t cursor = body_offset;
-          while(cursor + 4 <= current_msg_len_) {
+          while(cursor + 4 <= this->current_msg_len_) {
             std::uint8_t sbuf[4];
             session->peek(cursor, sbuf, 4);
             std::uint32_t encoded_size = flat_load_le<std::uint32_t>(sbuf);
@@ -99,8 +86,8 @@ namespace serialization {
             reader_->skip(cursor - reader_pos);
           }
 
-          std::size_t payload_size = current_msg_len_ - cursor;
-          invoke_handler<T>(view.get(), payload_size);
+          std::size_t payload_size = this->current_msg_len_ - cursor;
+          this->template invoke_handler<T>(view.get(), payload_size);
           // Framing does circular_buffer_skip_read(msg_len) after dispatch
           // returns — flat_view/session must not outlive the handler.
         };
@@ -109,7 +96,7 @@ namespace serialization {
       // Handler without payload: payload (if any) is ignored, framing skips it.
       template <typename T>
       void on_message(std::function<void(flat_view<T>&)> handler) {
-        message_handlers_[std::type_index(typeid(T))] =
+        this->message_handlers_[std::type_index(typeid(T))] =
           [h = std::move(handler)](void* ptr, size_t) {
             h(*reinterpret_cast<flat_view<T>*>(ptr));
           };
@@ -119,36 +106,10 @@ namespace serialization {
       // (positioned at the payload by dispatch).
       template <typename T>
       void on_message(std::function<void(flat_view<T>&, size_t payload_size)> handler) {
-        message_handlers_[std::type_index(typeid(T))] =
+        this->message_handlers_[std::type_index(typeid(T))] =
           [h = std::move(handler)](void* ptr, size_t payload_size) {
             h(*reinterpret_cast<flat_view<T>*>(ptr), payload_size);
           };
-      }
-
-      // Write type index + per-frame size prefix + serialized root + shared
-      // sub-frames (each with its own per-frame prefix via write_rest) + 0
-      // sentinel. Identical send path to flat_materialized_codec.
-      template <typename T>
-      void write_message_header(const T& message) {
-        auto type = std::type_index(typeid(T));
-        auto it = message_type_indexes_.find(type);
-        if(it == message_type_indexes_.end()) {
-          throw std::runtime_error("Message type not registered for sending: " + std::string(type.name()));
-        }
-        size_t index = it->second;
-        writer_->write_u32(static_cast<std::uint32_t>(index));
-
-        std::size_t root_size_offset = writer_->write_offset_;
-        writer_->write_u32(0); // encoded_size_0 placeholder
-        std::size_t root_frame_start = writer_->write_offset_;
-        serialize(*writer_, message);
-        std::uint32_t root_real_size =
-          static_cast<std::uint32_t>(writer_->write_offset_ - root_frame_start);
-        poke_u32(root_size_offset, root_real_size + 1);
-
-        writer_->write_rest(); // sub-frames with per-frame prefixes
-        writer_->write_u32(0); // sentinel
-        payload_start_ = writer_->write_offset_;
       }
 
       void reset_for_dispatch() {
@@ -162,12 +123,6 @@ namespace serialization {
       struct circular_buffer* input_buffer_;
       std::unique_ptr<flat_buffer_reader<circular_flat_source>> reader_;
       std::unique_ptr<flat_circular_buffer_writer> writer_;
-
-      std::size_t payload_start_ = 0;
-
-      void poke_u32(std::size_t abs_offset, std::uint32_t value) {
-        circular_buffer_poke(writer_->buffer_, abs_offset, &value, sizeof(value));
-      }
   };
 
 } // namespace serialization

@@ -132,6 +132,8 @@ Templatowane na codec, dziedziczą
 | 5b. Payload w flat zero-copy | **Done** | `flat_buffer_reader.hpp` (+`skip(n)`), `compressed_codec.hpp` (+`finalize_send()` no-op), `socket_message_framing.hpp` (`commit_send` woła `finalize_send`), `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (12-bajtowy nagłówek: index + root_frame_size + payload_size + `finalize_send` pokuje payload_size); testy: payload w `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
 | 5c. Full zero-copy grafów `shared_ptr` | **Done** | `flat_stream_writer.hpp` + `flat_circular_buffer_writer.hpp` (+`mark_written_pointer`, `poke_u32`, per-frame size prefix w `write_rest`), `flat_stream_reader.hpp` + `flat_buffer_reader.hpp` (+`mark_read_pointer`), `flat_view.hpp` (`flat_root_shared_on_session` z `body_offset` — walk prefiksów, `resolve_delta` relatywne do bieżącej ramki, usunięto `measure_frame`/`later_slots_`), `serialize.hpp`/`deserialize.hpp` (`make_shared_write_later`/`make_shared_read_later`), `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (nowy wire format: per-frame size prefix + sentinel, `finalize_send` no-op); testy: `serialization_flat_generated_ut.cpp` (32 grafy z cyklami + `flat_view`), `serialization_flat_ut.cpp`, `serialization_flat_circular_ut.cpp`, `serialization_flat_circular_writer_ut.cpp`, `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
 | 5d. Deduplikacja codec (CRTP baza) | **Done** | `message_codec_base.hpp` (nowy, CRTP baza: `dispatch_table_`/`message_type_indexes_`/`message_handlers_`/`current_msg_len_`, `register_exception_type`/`register_dynamic_type`/`register_message_type` szkielet, `dispatch` szkielet, `finalize_send` no-op, `invoke_handler<T>`), `compressed_codec.hpp` + `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (dziedziczą z bazy, usunięto duplikat map i szkieletów, format-specyficzne hooki w pochodnych: `reader`/`writer`/`read_type_index`/`write_message_header`/`make_dispatch_handler`/`reset_for_dispatch`/`on_message`); testy: bez zmian, wszystkie codec/channel/RPC przechodzą |
+| 5e. Deduplikacja flat codec (CRTP baza pośrednia) | **Done** | `flat_message_codec_base.hpp` (nowy, CRTP baza pośrednia dziedzicząca `message_codec_base`: `read_type_index` (u32+prefix), `write_message_header<T>`, `poke_u32`, `payload_start_`), `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (dziedziczą z `flat_message_codec_base`, usunięto byte-identical `read_type_index`/`write_message_header`/`poke_u32`/`payload_start_`; `on_message` zostaje w pochodnych — flat_zero_copy nie dziedziczy `void(T&)`); testy: bez zmian |
+| 5f. Deduplikacja flat writer/reader (CRTP baza) | **Done** | `flat_writer_base.hpp` + `flat_reader_base.hpp` (nowe, CRTP bazy dziedziczące `writer`/`reader`: `mark_*_pointer`, `make_shared_*_later<T>`, `write_pointer`/`read_pointer` (+weak), `write_rest`/`read_rest` per-frame prefix loop, tabele `written_pointers_`/`write_later_`/`read_pointers_`/`read_later_`/`skip_pointers_`, hooki `current_pos()`/`poke_u32()`), `flat_stream_writer.hpp` + `flat_circular_buffer_writer.hpp` (dziedziczą `flat_writer_base`, dodano `current_pos()`/`poke_u32()`, usunięto duplikat), `flat_stream_reader.hpp` + `flat_buffer_reader.hpp` (dziedziczą `flat_reader_base`, usunięto duplikat); testy: bez zmian, wszystkie 22 executów przechodzą |
 | 6. Stemplować RPC na codec | Pending | — |
 
 Po kroku 5c `flat_zero_copy_codec` obsługuje **full zero-copy grafów `shared_ptr`**:
@@ -210,6 +212,22 @@ zero-copy) jest wspólny i interoperacyjny: per-frame size prefix + 0 sentinel
    dostarczają tylko format-specyficzne hooki (`reader`/`writer`/`read_type_index`/
    `write_message_header`/`make_dispatch_handler`/`reset_for_dispatch`/`on_message`).
    API publiczne bez zmian, testy bez modyfikacji. **[DONE]**
+5e. **Deduplikacja flat codec (CRTP baza pośrednia `flat_message_codec_base`)** —
+   wyciągnięcie byte-identical `read_type_index` (u32+prefix), `write_message_header<T>`,
+   `poke_u32`, `payload_start_` do CRTP bazy pośredniej `flat_message_codec_base<Derived>`
+   (dziedziczącej `message_codec_base`); `flat_materialized_codec` i
+   `flat_zero_copy_codec` dziedziczą z niej. `on_message` zostaje w pochodnych —
+   flat_zero_copy nie dziedziczy `void(T&)` (jej dispatch przekazuje `flat_view<T>*`,
+   reinterpret_cast na `T*` byłby UB). API bez zmian, testy bez modyfikacji. **[DONE]**
+5f. **Deduplikacja flat writer/reader (CRTP baza `flat_writer_base`/`flat_reader_base`)** —
+   wyciągnięcie `mark_*_pointer`, `make_shared_*_later<T>`, `write_pointer`/`read_pointer`
+   (+weak), `write_rest`/`read_rest` (per-frame prefix loop) oraz tabelek
+   `written_pointers_`/`write_later_`/`read_pointers_`/`read_later_`/`skip_pointers_`
+   do CRTP baz `flat_writer_base<Derived>`/`flat_reader_base<Derived>` (dziedziczących
+   `writer`/`reader`); pary flat writerów/readerów dziedziczą z baz, dostarczają
+   hooków `current_pos()`/`poke_u32()`. `begin_frame`/`end_frame`/`write_typed`/
+   `register_*` zostają w concrete (większy refactor, osobny follow-up). API bez
+   zmian, testy bez modyfikacji, wszystkie 22 executów przechodzą. **[DONE]**
 6. **Stemplować `socket_rpc_server`/`socket_rpc_client` na codec**, usunąć
    duplikat `process_call`.
 

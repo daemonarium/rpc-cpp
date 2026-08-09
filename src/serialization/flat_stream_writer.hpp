@@ -1,6 +1,6 @@
 #pragma once
 
-#include "writer.hpp"
+#include "flat_writer_base.hpp"
 #include "flat_encoding.hpp"
 #include "flat_bytes_writer.hpp"
 #include "serialize.hpp"
@@ -20,7 +20,7 @@
 
 namespace serialization {
 
-  class flat_stream_writer : public writer {
+  class flat_stream_writer : public flat_writer_base<flat_stream_writer> {
     public:
       explicit flat_stream_writer(std::ostream& stream) : stream_(stream) {}
 
@@ -154,33 +154,6 @@ namespace serialization {
         serialize_message_functions_[it->second](&data);
       }
 
-      void write_rest() {
-        while(!write_later_.empty()) {
-          auto pair = write_later_.front();
-          // Per-frame size prefix: encoded_size = real_size + 1 (0 = sentinel).
-          std::size_t size_field = pos_;
-          write_u32(0);
-          std::size_t frame_start = pos_;
-          pair.second();
-          std::uint32_t real_size = static_cast<std::uint32_t>(pos_ - frame_start);
-          std::uint32_t encoded_size = real_size + 1;
-          std::uint8_t buf[4];
-          flat_store_le(buf, encoded_size);
-          std::streampos saved = stream_.tellp();
-          stream_.seekp(static_cast<std::streamoff>(size_field));
-          stream_.write(reinterpret_cast<const char*>(buf), 4);
-          stream_.seekp(saved);
-          written_pointers_.push_back(pair.first);
-          write_later_.erase(write_later_.begin());
-        }
-      }
-
-      // Flat graphs are homogeneous: sub-frames carry no per-frame type index.
-      template <typename T>
-      WriteLater make_shared_write_later(std::shared_ptr<T> value) {
-        return [value, this]() { serialize(*this, *value); };
-      }
-
       void register_serialize_typed_function(std::type_index type,
           std::function<void(void*)> serialize_fn) {
         typed_indexes_[type] = serialize_typed_functions_.size();
@@ -211,46 +184,8 @@ namespace serialization {
         });
       }
 
-      template <typename T>
-      void write_pointer(std::shared_ptr<T> value, WriteLater write_later) {
-        if(!value) {
-          write_i32(0);
-          return;
-        }
-        auto existing = std::find(written_pointers_.begin(), written_pointers_.end(), value);
-        if(existing != written_pointers_.end()) {
-          std::int32_t index = static_cast<std::int32_t>(std::distance(written_pointers_.begin(), existing));
-          std::int32_t delta = index - static_cast<std::int32_t>(written_pointers_.size());
-          write_i32(delta);
-          return;
-        }
-        auto will_be_written = std::find_if(write_later_.begin(), write_later_.end(),
-          [value](const auto& pair) { return pair.first == value; });
-        if(will_be_written != write_later_.end()) {
-          std::int32_t index = static_cast<std::int32_t>(std::distance(write_later_.begin(), will_be_written));
-          write_i32(index + 1);
-          return;
-        }
-        std::int32_t index = static_cast<std::int32_t>(write_later_.size());
-        write_i32(index + 1);
-        write_later_.push_back({value, write_later});
-      }
-
-      template <typename T>
-      void write_pointer(std::weak_ptr<T> value, WriteLater write_later) {
-        write_pointer(value.lock(), write_later);
-      }
-
       std::size_t position() const { return pos_; }
-
-      // Pre-register a shared_ptr as already-written so that self-references
-      // (and any later references) to it use negative back-reference deltas
-      // instead of creating duplicate sub-frames. Used by the shared-graph
-      // root path: the root is deref-serialized (no write_pointer) but must
-      // still be discoverable by write_pointer for back-references.
-      void mark_written_pointer(std::shared_ptr<void> value) {
-        written_pointers_.push_back(std::move(value));
-      }
+      std::size_t current_pos() const { return pos_; }
 
       // Poke a u32 LE value at a previously reserved stream position. Used to
       // back-patch per-frame size prefixes after the frame body is complete.
@@ -272,9 +207,6 @@ namespace serialization {
       std::ostream& stream_;
       std::size_t pos_ = 0;
       std::vector<Frame> frames_;
-
-      std::vector<std::shared_ptr<void>> written_pointers_;
-      std::vector<std::pair<std::shared_ptr<void>, WriteLater>> write_later_;
 
       std::vector<std::function<void(void*)>> serialize_typed_functions_;
       std::unordered_map<std::type_index, size_t> typed_indexes_;

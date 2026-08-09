@@ -1,6 +1,6 @@
 #pragma once
 
-#include "writer.hpp"
+#include "flat_writer_base.hpp"
 #include "flat_encoding.hpp"
 #include "flat_bytes_writer.hpp"
 #include "serialize.hpp"
@@ -25,7 +25,7 @@ namespace serialization {
 
   // Flat LE writer into circular_buffer via poke (no auto-commit).
   // Caller commits with circular_buffer_commit_write(buffer, writer.write_offset_).
-  class flat_circular_buffer_writer : public writer {
+  class flat_circular_buffer_writer : public flat_writer_base<flat_circular_buffer_writer> {
     public:
       explicit flat_circular_buffer_writer(struct circular_buffer* buffer, size_t write_offset = 0)
         : buffer_(buffer), write_offset_(write_offset) {
@@ -167,31 +167,6 @@ namespace serialization {
         serialize_message_functions_[it->second](&data);
       }
 
-      void write_rest() {
-        while(!write_later_.empty()) {
-          auto pair = write_later_.front();
-          // Per-frame size prefix: encoded_size = real_size + 1 (0 = sentinel).
-          // Reserved here, poked after the sub-frame body is complete.
-          std::size_t size_field = write_offset_;
-          write_u32(0);
-          std::size_t frame_start = write_offset_;
-          pair.second();
-          std::uint32_t real_size = static_cast<std::uint32_t>(write_offset_ - frame_start);
-          std::uint32_t encoded_size = real_size + 1;
-          circular_buffer_poke(buffer_, size_field, &encoded_size, sizeof(encoded_size));
-          written_pointers_.push_back(pair.first);
-          write_later_.erase(write_later_.begin());
-        }
-      }
-
-      // Flat graphs are homogeneous (all nodes type T): sub-frames carry no
-      // per-frame type index, only the per-frame size prefix written by
-      // write_rest. The deferred callback serializes the pointee directly.
-      template <typename T>
-      WriteLater make_shared_write_later(std::shared_ptr<T> value) {
-        return [value, this]() { serialize(*this, *value); };
-      }
-
       void register_serialize_typed_function(std::type_index type,
           std::function<void(void*)> serialize_fn) {
         typed_indexes_[type] = serialize_typed_functions_.size();
@@ -222,45 +197,14 @@ namespace serialization {
         });
       }
 
-      template <typename T>
-      void write_pointer(std::shared_ptr<T> value, WriteLater write_later) {
-        if(!value) {
-          write_i32(0);
-          return;
-        }
-        auto existing = std::find(written_pointers_.begin(), written_pointers_.end(), value);
-        if(existing != written_pointers_.end()) {
-          std::int32_t index = static_cast<std::int32_t>(std::distance(written_pointers_.begin(), existing));
-          std::int32_t delta = index - static_cast<std::int32_t>(written_pointers_.size());
-          write_i32(delta);
-          return;
-        }
-        auto will_be_written = std::find_if(write_later_.begin(), write_later_.end(),
-          [value](const auto& pair) { return pair.first == value; });
-        if(will_be_written != write_later_.end()) {
-          std::int32_t index = static_cast<std::int32_t>(std::distance(write_later_.begin(), will_be_written));
-          write_i32(index + 1);
-          return;
-        }
-        std::int32_t index = static_cast<std::int32_t>(write_later_.size());
-        write_i32(index + 1);
-        write_later_.push_back({value, write_later});
-      }
-
-      template <typename T>
-      void write_pointer(std::weak_ptr<T> value, WriteLater write_later) {
-        write_pointer(value.lock(), write_later);
-      }
-
       struct circular_buffer* buffer_ = nullptr;
       size_t write_offset_ = 0;
 
-      // Pre-register a shared_ptr as already-written so that self-references
-      // use negative back-reference deltas instead of duplicates. Used by
-      // the shared-graph root path (root is deref-serialized but must be
-      // discoverable by write_pointer for back-references).
-      void mark_written_pointer(std::shared_ptr<void> value) {
-        written_pointers_.push_back(std::move(value));
+      std::size_t current_pos() const { return write_offset_; }
+
+      // Back-patch a u32 LE value at a previously reserved writer position.
+      void poke_u32(std::size_t abs_offset, std::uint32_t value) {
+        circular_buffer_poke(buffer_, abs_offset, &value, sizeof(value));
       }
 
     private:
@@ -270,9 +214,6 @@ namespace serialization {
       };
 
       std::vector<Frame> frames_;
-
-      std::vector<std::shared_ptr<void>> written_pointers_;
-      std::vector<std::pair<std::shared_ptr<void>, WriteLater>> write_later_;
 
       std::vector<std::function<void(void*)>> serialize_typed_functions_;
       std::unordered_map<std::type_index, size_t> typed_indexes_;

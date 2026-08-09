@@ -1,6 +1,6 @@
 #pragma once
 
-#include "reader.hpp"
+#include "flat_reader_base.hpp"
 #include "deserialize.hpp"
 #include "flat_encoding.hpp"
 #include "type_concepts.hpp"
@@ -18,11 +18,9 @@
 
 namespace serialization {
 
-  class flat_stream_reader : public reader {
+  class flat_stream_reader : public flat_reader_base<flat_stream_reader> {
     public:
       explicit flat_stream_reader(std::istream& stream) : stream_(stream) {}
-
-      void set_skip_pointers(bool skip) { skip_pointers_ = skip; }
 
       consteval bool is_indexed() { return false; }
 
@@ -234,14 +232,6 @@ namespace serialization {
         deserialize_message_functions_.push_back(std::move(deserialize_fn));
       }
 
-      // Pre-register a deserialized object as already-read so that back-
-      // references (negative deltas) to it resolve correctly. Used by the
-      // shared-graph root path: the root is deref-deserialized (no read_pointer)
-      // but must be discoverable by read_pointer for back-references.
-      void mark_read_pointer(std::shared_ptr<void> value) {
-        read_pointers_.push_back(std::move(value));
-      }
-
       template <typename T>
       void register_deserialize_message_function() {
         auto type = std::type_index(typeid(T));
@@ -253,93 +243,13 @@ namespace serialization {
         });
       }
 
-      template <typename T>
-      void read_pointer(std::shared_ptr<T>& value, ReadLater read_later) {
-        std::int32_t delta = 0;
-        read_i32(delta);
-        if(skip_pointers_) {
-          value = nullptr;
-          return;
-        }
-        if(delta == 0) {
-          value = nullptr;
-          return;
-        }
-        if(delta < 0) {
-          size_t index = static_cast<size_t>(static_cast<std::ptrdiff_t>(read_pointers_.size()) + delta);
-          value = std::static_pointer_cast<T>(read_pointers_[index]);
-          return;
-        }
-        AssignAfterRead assign = [&value](std::shared_ptr<void>& data) {
-          value = std::static_pointer_cast<T>(data);
-        };
-        delta--;
-        if(static_cast<size_t>(delta) < read_later_.size()) {
-          read_later_[static_cast<size_t>(delta)].first.push_back(assign);
-          return;
-        }
-        if(static_cast<size_t>(delta) > read_later_.size()) {
-          throw std::runtime_error("Pointer delta too large, input is corrupted");
-        }
-        read_later_.push_back({std::vector<AssignAfterRead>{assign}, read_later});
-      }
-
-      template <typename T>
-      void read_pointer(std::weak_ptr<T>& value, ReadLater read_later) {
-        std::shared_ptr<T> shared;
-        read_pointer(shared, read_later);
-        value = shared;
-      }
-
-      void read_rest() {
-        while(!read_later_.empty()) {
-          // Move callback out; do not keep references across it — read_typed may
-          // push_back new later-entries and reallocate. Self-refs append assigns
-          // onto front().first during the callback; collect them afterwards.
-          ReadLater callbacks = std::move(read_later_.front().second);
-          // Consume the per-frame size prefix (encoded = real_size + 1) written
-          // by the writer's write_rest. The materialized reader reads fields
-          // sequentially, so the size itself is not needed — only consumed to
-          // keep the cursor aligned with the sub-frame body.
-          std::uint32_t encoded_size = 0;
-          read_u32(encoded_size);
-          (void)encoded_size;
-          std::shared_ptr<void> result;
-          callbacks(result);
-          auto assigns = std::move(read_later_.front().first);
-          for(auto& assign : assigns) {
-            assign(result);
-          }
-          read_pointers_.push_back(std::move(result));
-          read_later_.erase(read_later_.begin());
-        }
-      }
-
-      // Flat graphs are homogeneous (all nodes type T): sub-frames carry no
-      // per-frame type index, so the deferred callback deserializes the
-      // pointee directly via the compile-time element type.
-      template <typename T>
-      ReadLater make_shared_read_later() {
-        return [this](std::shared_ptr<void>& data) {
-          auto typed = std::make_shared<T>();
-          deserialize(*this, *typed);
-          data = typed;
-        };
-      }
-
     private:
       struct Frame {
         std::size_t checkpoint_count;
       };
 
-      using AssignAfterRead = std::function<void(std::shared_ptr<void>&)>;
-
       std::istream& stream_;
       std::vector<Frame> frames_;
-      bool skip_pointers_ = false;
-
-      std::vector<std::shared_ptr<void>> read_pointers_;
-      std::vector<std::pair<std::vector<AssignAfterRead>, ReadLater>> read_later_;
 
       std::vector<std::function<void(void*)>> deserialize_typed_functions_;
       std::unordered_map<std::type_index, size_t> typed_indexes_;
