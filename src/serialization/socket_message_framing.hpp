@@ -61,13 +61,10 @@ namespace serialization {
       template <typename T>
       void register_dynamic_type() { codec_->template register_dynamic_type<T>(); }
 
-      template <typename T>
-      void on_message(std::function<void(T&)> handler) { codec_->template on_message<T>(handler); }
-
-      template <typename T>
-      void on_message(std::function<void(T&, size_t payload_size)> handler) {
-        codec_->template on_message<T>(handler);
-      }
+      // Generic on_message: forwards the handler to the codec, which validates
+      // the signature (compressed: void(T&)/void(T&,size_t); zero_copy: void(flat_view<T>&)).
+      template <typename T, typename Handler>
+      void on_message(Handler handler) { codec_->template on_message<T>(std::move(handler)); }
 
       // Send a complete message (no payload)
       template <typename T>

@@ -128,12 +128,29 @@ Templatowane na codec, dziedziczą
 | 2. Wydzielenie framing | **Done** | `socket_message_framing.hpp` (nowy, `socket_message_framing<Codec>`) |
 | 3. Wydzielenie `compressed_codec` | **Done** | `compressed_codec.hpp` (nowy), `socket_message_channel.hpp` → alias `socket_message_framing<compressed_codec>`; test: `compressed_codec_ut.cpp` |
 | 4. `flat_materialized_codec` | **Done** | `flat_materialized_codec.hpp` (nowy), `flat_buffer_reader.hpp` (+`reset()`), `socket_message_channel.hpp` (+alias `flat_socket_message_channel`); test: `flat_materialized_codec_ut.cpp` |
-| 5. `flat_zero_copy_codec` | Pending | — |
+| 5. `flat_zero_copy_codec` | **Done** | `flat_zero_copy_codec.hpp` (nowy), `socket_message_framing.hpp` (generyczny `on_message<T,Handler>`), `socket_message_channel.hpp` (+alias `flat_zero_copy_socket_message_channel`); testy: `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
 | 6. Stemplować RPC na codec | Pending | — |
 
-Po kroku 4 `socket_message_framing<flat_materialized_codec>` działa dla wiadomości
-(rejestracja, dispatch, payload, wyjątki, typy dynamiczne). RPC (`socket_rpc_server`/
-`socket_rpc_client`) nadal używa `compressed` — stemplowanie RPC to krok 6.
+Po kroku 5 `socket_message_framing<flat_zero_copy_codec>` działa dla wiadomości:
+dispatch buduje `flat_view<T>` nad buforem wejściowym socketa (zero-copy), handler
+dostaje `flat_view<T>&` i czyta pola przez `get<^^field>()`. Send path identyczny
+z `flat_materialized_codec`. RPC (`socket_rpc_server`/`socket_rpc_client`) nadal
+używa `compressed` — stemplowanie RPC to krok 6.
+
+### Ograniczenia zero-copy v1
+
+- **shared_ptr grafy = nullptr.** `flat_view<T>` dla pól `shared_ptr<U>` zwraca
+  `session->pointer_at<U>()` = nullptr (bez `bind_pointers`). Full graph zero-copy
+  wymaga `flat_root_shared_on_session` z root delta offset 4 (nie 0) — to future
+  extension API `flat_view`. v1: handler widzi nullptr dla `shared_ptr` pól,
+  skalary/stringi zero-copy działają.
+- **Brak payload.** Handler dostaje tylko `flat_view<T>` — nie ma readera ani
+  `payload_size`. Jeśli ktoś chce payload, używa `flat_materialized_codec`
+  (handler `void(T&, size_t)`). Próba liczenia payload via `measure_frame`
+  psułaby zero-copy (materializacja `T` dla sizingu).
+- **Lifetime view = okno dispatch.** `flat_view` jest ważny tylko w handlerze,
+  przed `framing.skip_read(msg_len)` po dispatch. Po powrocie z handlera sesja
+  jest zwalniana. Handler musi skopiować dane, których potrzebuje poza dispatch.
 
 ## Kolejność wdrożenia
 
@@ -148,7 +165,7 @@ Po kroku 4 `socket_message_framing<flat_materialized_codec>` działa dla wiadomo
 4. **Dodać `flat_materialized_codec`** — powinno być prawie kopia compressed z
    innymi reader/writer. **[DONE]**
 5. **Dodać `flat_zero_copy_codec`** — tylko tu pojawia się
-   `flat_root_circular<T>` w dispatchu.
+   `flat_root_circular<T>` w dispatchu. **[DONE]**
 6. **Stemplować `socket_rpc_server`/`socket_rpc_client` na codec**, usunąć
    duplikat `process_call`.
 

@@ -175,6 +175,20 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(flat_zero_copy_codec_ut src/test/flat_zero_copy_codec_ut.cpp ${IO_FILES})
+  target_include_directories(flat_zero_copy_codec_ut PRIVATE src)
+  target_link_libraries(flat_zero_copy_codec_ut PRIVATE Boost::ut)
+  set_target_properties(flat_zero_copy_codec_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_zero_copy_message_channel_ut src/test/flat_zero_copy_message_channel_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  target_include_directories(flat_zero_copy_message_channel_ut PRIVATE src)
+  target_link_libraries(flat_zero_copy_message_channel_ut PRIVATE Boost::ut socket_test_stub)
+  set_target_properties(flat_zero_copy_message_channel_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   # --- Serialization tests (key format) ---
 
   add_executable(serialization_key_ut src/test/serialization_key_ut.cpp ${IO_FILES})
@@ -258,6 +272,8 @@ if(NOT WASM)
   add_test(NAME compressed_codec_ut COMMAND compressed_codec_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME flat_materialized_codec_ut COMMAND flat_materialized_codec_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME flat_message_channel_ut COMMAND flat_message_channel_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_zero_copy_codec_ut COMMAND flat_zero_copy_codec_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_zero_copy_message_channel_ut COMMAND flat_zero_copy_message_channel_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_key_ut COMMAND serialization_key_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_key_circular_ut COMMAND serialization_key_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_cb_ut COMMAND serialization_cb_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)

@@ -8,8 +8,10 @@
 #include "socket_message_framing.hpp"
 #include "compressed_codec.hpp"
 #include "flat_materialized_codec.hpp"
+#include "flat_zero_copy_codec.hpp"
 
 namespace serialization {
   using socket_message_channel = socket_message_framing<compressed_codec>;
   using flat_socket_message_channel = socket_message_framing<flat_materialized_codec>;
+  using flat_zero_copy_socket_message_channel = socket_message_framing<flat_zero_copy_codec>;
 }
