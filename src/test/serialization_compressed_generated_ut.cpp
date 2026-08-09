@@ -330,6 +330,62 @@ int main() {
     }
   };
 
+  "compressed shared_ptr null root"_test = [] {
+    std::shared_ptr<Person> nil;
+    std::string bytes = encode_compressed_shared(nil);
+
+    {
+      auto out = stream_roundtrip_shared(nil);
+      expect(out == nullptr);
+      expect(eq(encode_compressed_shared(out), bytes));
+    }
+    for(bool wrap : {false, true}) {
+      auto out = circular_roundtrip_shared(nil, wrap);
+      expect(out == nullptr);
+      expect(eq(encode_compressed_shared(out), bytes));
+    }
+  };
+
+  "compressed shared_ptr graph (a<->b cycle)"_test = [] {
+    auto a = std::make_shared<Person>();
+    a->name = "A";
+    a->age = 1;
+    auto b = std::make_shared<Person>();
+    b->name = "B";
+    b->age = 2;
+    a->friends.push_back(b);
+    a->friends.push_back(nullptr);
+    b->friends.push_back(a);
+
+    std::string bytes = encode_compressed_shared(a);
+
+    {
+      auto out = stream_roundtrip_shared(a);
+      expect(out != nullptr);
+      expect(eq(out->name, std::string{"A"}));
+      expect(eq(out->friends.size(), std::size_t{2}));
+      expect(out->friends[0] != nullptr);
+      expect(eq(out->friends[0]->name, std::string{"B"}));
+      expect(out->friends[1] == nullptr);
+      expect(out->friends[0]->friends.size() == 1_u);
+      expect(out->friends[0]->friends[0].get() == out.get());
+      expect(eq(encode_compressed_shared(out), bytes));
+    }
+
+    for(bool wrap : {false, true}) {
+      auto out = circular_roundtrip_shared(a, wrap);
+      expect(out != nullptr);
+      expect(eq(out->name, std::string{"A"}));
+      expect(eq(out->friends.size(), std::size_t{2}));
+      expect(out->friends[0] != nullptr);
+      expect(eq(out->friends[0]->name, std::string{"B"}));
+      expect(out->friends[1] == nullptr);
+      expect(out->friends[0]->friends.size() == 1_u);
+      expect(out->friends[0]->friends[0].get() == out.get());
+      expect(eq(encode_compressed_shared(out), bytes));
+    }
+  };
+
   "compressed generated person graphs: serialize/deserialize"_test = [] {
     constexpr int N = 32;
     for(int i = 0; i < N; ++i) {
