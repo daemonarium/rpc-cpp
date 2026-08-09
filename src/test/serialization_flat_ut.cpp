@@ -59,7 +59,7 @@ namespace {
   };
 
   template <typename T>
-  std::string flat_bytes(const T& value) {
+  std::string encode_flat(const T& value) {
     std::ostringstream os;
     flat_stream_writer w(os);
     serialize(w, value);
@@ -69,7 +69,7 @@ namespace {
 
   template <typename T>
   T flat_roundtrip(const T& value) {
-    std::string bytes = flat_bytes(value);
+    std::string bytes = encode_flat(value);
     std::istringstream is(bytes);
     flat_stream_reader r(is);
     T out{};
@@ -80,7 +80,7 @@ namespace {
 
   template <typename T>
   T flat_buffer_roundtrip(const T& value) {
-    std::string bytes = flat_bytes(value);
+    std::string bytes = encode_flat(value);
     std::vector<std::uint8_t> buf(bytes.begin(), bytes.end());
     flat_buffer_reader<span_flat_source> r{span_flat_source(buf)};
     T out{};
@@ -124,7 +124,7 @@ int main() {
 
   "flat vector fixed no trailer"_test = [] {
     std::vector<std::int32_t> v{1, 2, 3, 4, 5};
-    auto bytes = flat_bytes(v);
+    auto bytes = encode_flat(v);
     expect(eq(bytes.size(), std::size_t{4 + 5 * 4}));
     expect(flat_roundtrip(v) == v);
   };
@@ -132,14 +132,14 @@ int main() {
   "flat empty vector"_test = [] {
     std::vector<std::int32_t> empty_fixed;
     expect(static_cast<bool>(flat_roundtrip(empty_fixed) == empty_fixed));
-    expect(eq(flat_bytes(empty_fixed).size(), std::size_t{4}));
+    expect(eq(encode_flat(empty_fixed).size(), std::size_t{4}));
 
     std::vector<std::string> empty_var;
     expect(static_cast<bool>(flat_roundtrip(empty_var) == empty_var));
 
     auto storage = std::make_shared<std::vector<std::uint8_t>>();
     {
-      std::string s = flat_bytes(empty_fixed);
+      std::string s = encode_flat(empty_fixed);
       storage->assign(s.begin(), s.end());
     }
     auto session = std::make_shared<flat_session>(storage);
@@ -165,7 +165,7 @@ int main() {
 
   "flat udt scalars only no trailer"_test = [] {
     OnlyScalars o{7, -3, true};
-    auto bytes = flat_bytes(o);
+    auto bytes = encode_flat(o);
     expect(eq(bytes.size(), std::size_t{4 + 4 + 1}));
     auto out = flat_roundtrip(o);
     expect(eq(out.a, 7));
@@ -188,7 +188,7 @@ int main() {
 
     auto storage = std::make_shared<std::vector<std::uint8_t>>();
     {
-      std::string s = flat_bytes(w);
+      std::string s = encode_flat(w);
       storage->assign(s.begin(), s.end());
     }
     auto session = std::make_shared<flat_session>(storage);
@@ -199,7 +199,7 @@ int main() {
 
   "flat map empty"_test = [] {
     std::map<std::string, std::int32_t> empty;
-    auto bytes = flat_bytes(empty);
+    auto bytes = encode_flat(empty);
     expect(eq(bytes.size(), std::size_t{4}));
     expect(static_cast<bool>(flat_roundtrip(empty) == empty));
   };
@@ -243,7 +243,7 @@ int main() {
 
     auto storage = std::make_shared<std::vector<std::uint8_t>>();
     {
-      std::string s = flat_bytes(m);
+      std::string s = encode_flat(m);
       storage->assign(s.begin(), s.end());
     }
     auto session = std::make_shared<flat_session>(storage);
@@ -270,7 +270,7 @@ int main() {
 
     auto storage = std::make_shared<std::vector<std::uint8_t>>();
     {
-      std::string s = flat_bytes(p);
+      std::string s = encode_flat(p);
       storage->assign(s.begin(), s.end());
     }
     auto session = std::make_shared<flat_session>(storage);
@@ -286,7 +286,7 @@ int main() {
     std::map<std::int32_t, std::string> m{{2, "two"}, {1, "one"}};
     auto storage = std::make_shared<std::vector<std::uint8_t>>();
     {
-      std::string s = flat_bytes(m);
+      std::string s = encode_flat(m);
       storage->assign(s.begin(), s.end());
     }
     auto session = std::make_shared<flat_session>(storage);
@@ -301,7 +301,7 @@ int main() {
       m[std::string(20, static_cast<char>('a' + (i % 26))) + std::to_string(i)] = i;
     }
     expect(static_cast<bool>(flat_roundtrip(m) == m));
-    auto bytes = flat_bytes(m);
+    auto bytes = encode_flat(m);
     expect(bytes.size() > 256u);
   };
 
@@ -376,7 +376,7 @@ int main() {
 
     auto storage = std::make_shared<std::vector<std::uint8_t>>();
     {
-      std::string s = flat_bytes(p);
+      std::string s = encode_flat(p);
       storage->assign(s.begin(), s.end());
     }
 
@@ -386,9 +386,15 @@ int main() {
     expect(eq(std::string(view.get<^^Person::name>()), std::string{"Eve"}));
     expect(eq(view.get<^^Person::age>(), 42));
     expect(eq(std::string(view.get<"name">()), std::string{"Eve"}));
+    {
+      flat_string name = view.get<^^Person::name>();
+      expect(!name.owns());
+      expect(eq(std::string(name), std::string{"Eve"}));
+    }
 
     auto skill = view.get<^^Person::skill>();
     expect(eq(std::string(skill.get<^^Skill::name>()), std::string{"go"}));
+    expect(!skill.get<^^Skill::name>().owns());
     expect(eq(skill.get<^^Skill::level>(), 3));
 
     auto scores = view.get<^^Person::scores>();

@@ -230,8 +230,8 @@ Fixed LE, sparse checkpointy (`save_offset` po polach variable), trailer `[forma
 |-----------|------|
 | `flat_stream_writer` / `flat_stream_reader` | zapis/odczyt sekwencyjny do `ostream`/`istream` |
 | `flat_buffer_reader` + `FlatSource` | `span_flat_source` / `circular_flat_source` (peek, `get_segments`, `try_ptr`; szew OK) |
-| `flat_view<T>` / `flat_map_view` / `flat_root` / `flat_root_shared` | meta `get<^^Field>()` / `get<"name">()`; mapy SoA + BS `find`; `shared_ptr` → `shared_ptr<flat_view<U>>` |
-| `flat_root_circular` / `flat_root_shared_circular` | contig → zero-copy span w pierścieniu; wrap → materialize; views do `skip_read` |
+| `flat_view<T>` / `flat_map_view` / `flat_root` / `flat_root_shared` | meta `get<^^Field>()` / `get<"name">()` → `flat_string` / `flat_bytes` / nested views; mapy SoA + BS `find`; `shared_ptr` → `shared_ptr<flat_view<U>>` |
+| `flat_root_circular` / `flat_root_shared_circular` | session na pierścieniu (wrap OK, bez full materialize); string/binary borrow lub per-field own; views do `skip_read` |
 
 ---
 
@@ -258,7 +258,7 @@ src/serialization/
   serialize.hpp / deserialize.hpp
   stream_reader.hpp / stream_writer.hpp
   circular_buffer_reader.hpp / circular_buffer_writer.hpp
-  flat_encoding.hpp, flat_source.hpp, flat_bytes_writer.hpp
+  flat_encoding.hpp, flat_source.hpp, flat_bytes.hpp, flat_bytes_writer.hpp
   flat_stream_writer.hpp / flat_stream_reader.hpp
   flat_buffer_reader.hpp / flat_view.hpp
   key_codec.hpp, key_stream_*.hpp, key_circular_buffer_*.hpp

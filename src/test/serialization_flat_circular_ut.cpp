@@ -43,7 +43,7 @@ namespace {
   };
 
   template <typename T>
-  std::string flat_bytes(const T& value) {
+  std::string encode_flat(const T& value) {
     std::ostringstream os;
     flat_stream_writer w(os);
     serialize(w, value);
@@ -131,7 +131,7 @@ namespace {
 
   template <typename T>
   T roundtrip_circular_reader(const T& value, bool wrap) {
-    std::string bytes = flat_bytes(value);
+    std::string bytes = encode_flat(value);
     struct circular_buffer* cb = place_bytes(bytes, wrap);
     expect(cb != nullptr);
     circular_flat_source src(cb);
@@ -167,7 +167,7 @@ int main() {
   static_assert(!flat_source_is_contiguous_v<circular_flat_source>);
 
   "circular flat_source peek"_test = [] {
-    std::string bytes = flat_bytes(std::int32_t{42});
+    std::string bytes = encode_flat(std::int32_t{42});
     struct circular_buffer* cb = place_bytes(bytes, true);
     expect(cb != nullptr);
     circular_flat_source src(cb);
@@ -190,7 +190,7 @@ int main() {
       expect(empty.region_contiguous(0, 0) == false);
     }
 
-    std::string bytes = flat_bytes(std::string{"hello-world!!"});
+    std::string bytes = encode_flat(std::string{"hello-world!!"});
     {
       struct circular_buffer* cb = place_bytes(bytes, false);
       circular_flat_source src(cb);
@@ -236,7 +236,7 @@ int main() {
   };
 
   "circular reader seam sweep small message"_test = [] {
-    std::string msg = flat_bytes(std::string{"abcdefghijklmnop"});
+    std::string msg = encode_flat(std::string{"abcdefghijklmnop"});
     for(size_t seam = 0; seam < msg.size(); ++seam) {
       size_t cap = 64;
       struct circular_buffer* cb = circular_buffer_create(cap, nullptr);
@@ -264,14 +264,17 @@ int main() {
     p.scores = {1, 2};
     p.tags = {"a", "b"};
     p.attrs = {{"hp", 100}};
-    std::string bytes = flat_bytes(p);
+    std::string bytes = encode_flat(p);
 
     {
       struct circular_buffer* cb = place_bytes(bytes, false);
       expect(circular_buffer_region_contiguous(cb, 0, bytes.size()) != 0);
       auto view = flat_root_circular<Person>(cb, bytes.size());
+      expect(view.session()->storage() == nullptr);
+      expect(view.session()->is_circular());
       expect_person_view_fields(view);
-      std::string_view name = view.get<^^Person::name>();
+      flat_string name = view.get<^^Person::name>();
+      expect(!name.owns());
       expect(ptr_in_ring(cb, name.data()));
       const char* ring = nullptr;
       expect(eq(circular_buffer_try_contiguous_ptr(cb, 0, bytes.size(), &ring), bytes.size()));
@@ -282,19 +285,50 @@ int main() {
       struct circular_buffer* cb = place_bytes(bytes, true);
       expect(circular_buffer_region_contiguous(cb, 0, bytes.size()) == 0);
       auto view = flat_root_circular<Person>(cb, bytes.size());
+      // No full-message materialize: circular session, no owned vector storage.
+      expect(view.session()->storage() == nullptr);
+      expect(view.session()->is_circular());
       expect_person_view_fields(view);
-      std::string_view name = view.get<"name">();
-      // Materialized path: string bytes live in owned vector, not necessarily ring.
+      flat_string name = view.get<"name">();
       expect(eq(std::string(name), std::string{"Ada"}));
+      if(name.owns()) {
+        expect(!ptr_in_ring(cb, name.data()));
+      } else {
+        expect(ptr_in_ring(cb, name.data()));
+      }
       circular_buffer_destroy(cb);
     }
+  };
+
+  "circular flat_root name field crosses seam owns"_test = [] {
+    Person p;
+    p.name = "ABCDEFGHIJKLMNOP";
+    p.age = 1;
+    std::string bytes = encode_flat(p);
+    // Place seam inside the name payload (after u32 len prefix of the name field).
+    // Person layout starts with string name: find a before_wrap that splits name bytes.
+    bool saw_own = false;
+    for(size_t before = 1; before < bytes.size(); ++before) {
+      struct circular_buffer* cb = place_bytes_seam(bytes, before);
+      expect(cb != nullptr);
+      auto view = flat_root_circular<Person>(cb, bytes.size());
+      expect(view.session()->storage() == nullptr);
+      flat_string name = view.get<^^Person::name>();
+      expect(eq(std::string(name), std::string{"ABCDEFGHIJKLMNOP"}));
+      if(name.owns()) {
+        saw_own = true;
+        expect(!ptr_in_ring(cb, name.data()));
+      }
+      circular_buffer_destroy(cb);
+    }
+    expect(saw_own);
   };
 
   "circular flat_root_circular map find"_test = [] {
     Person p;
     p.name = "M";
     p.attrs = {{"aa", 2}, {"b", 1}};
-    std::string bytes = flat_bytes(p);
+    std::string bytes = encode_flat(p);
     for(bool wrap : {false, true}) {
       struct circular_buffer* cb = place_bytes(bytes, wrap);
       auto view = flat_root_circular<Person>(cb, bytes.size());
@@ -354,6 +388,8 @@ int main() {
       expect(eq(circular_buffer_region_contiguous(cb, 0, bytes.size()) != 0, !wrap));
       auto root = flat_root_shared_circular<Person>(cb, bytes.size());
       expect(root != nullptr);
+      expect(root->session()->storage() == nullptr);
+      expect(root->session()->is_circular());
       expect(eq(std::string(root->get<^^Person::name>()), std::string{"Root"}));
       expect(eq(root->get<^^Person::age>(), 10));
       auto friends = root->get<^^Person::friends>();
@@ -363,7 +399,8 @@ int main() {
       expect(eq(std::string(friends[0]->get<^^Person::name>()), std::string{"Friend"}));
       expect(friends[1].get() == root.get());
       if(!wrap) {
-        std::string_view name = root->get<^^Person::name>();
+        flat_string name = root->get<^^Person::name>();
+        expect(!name.owns());
         expect(ptr_in_ring(cb, name.data()));
       }
       circular_buffer_destroy(cb);
@@ -464,7 +501,7 @@ int main() {
     p.skill = Skill{"s", 2};
     p.scores = {3};
     p.tags = {"t"};
-    std::string bytes = flat_bytes(p);
+    std::string bytes = encode_flat(p);
     auto span_src = span_flat_source(
       std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()));
     std::size_t a = flat_detail::measure_frame<Person>(span_src, 0, bytes.size());
@@ -493,7 +530,7 @@ int main() {
   "circular factory error paths"_test = [] {
     Person p;
     p.name = "e";
-    std::string bytes = flat_bytes(p);
+    std::string bytes = encode_flat(p);
     struct circular_buffer* cb = place_bytes(bytes, false);
     expect(throws<std::runtime_error>([] {
       flat_root_circular<Person>(nullptr, 4);
@@ -512,7 +549,7 @@ int main() {
 
   "circular lifetime smoke"_test = [] {
     {
-      std::string bytes = flat_bytes(std::string{"ok"});
+      std::string bytes = encode_flat(std::string{"ok"});
       struct circular_buffer* cb = place_bytes(bytes, false);
       {
         circular_flat_source src(cb);
@@ -529,7 +566,7 @@ int main() {
       Person p;
       p.name = "Z";
       p.age = 1;
-      std::string bytes = flat_bytes(p);
+      std::string bytes = encode_flat(p);
       struct circular_buffer* cb = place_bytes(bytes, false);
       {
         auto view = flat_root_circular<Person>(cb, bytes.size());

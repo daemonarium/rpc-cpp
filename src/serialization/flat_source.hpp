@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -119,6 +120,46 @@ namespace serialization {
       throw std::runtime_error("flat_peek_range: short read");
     }
     return out;
+  }
+
+  // Lexicographic memcmp of logical range [offset, offset+len) vs needle[0..cmp_len).
+  // Returns <0 / 0 / >0 like memcmp on the compared prefix of length cmp_len.
+  template <class S>
+  int flat_memcmp_prefix(const S& source, std::size_t offset, std::size_t len,
+      const std::uint8_t* needle, std::size_t cmp_len) {
+    if(cmp_len == 0) {
+      return 0;
+    }
+    if constexpr (requires(const S& s, std::size_t o, std::size_t n,
+        struct circular_buffer_segment out[2]) {
+      { s.get_segments(o, n, out) } -> std::convertible_to<int>;
+    }) {
+      struct circular_buffer_segment segs[2]{};
+      const int nseg = source.get_segments(offset, len, segs);
+      if(nseg == 1) {
+        return std::memcmp(segs[0].ptr, needle, cmp_len);
+      }
+      if(nseg == 2) {
+        std::size_t done = 0;
+        for(int i = 0; i < 2 && done < cmp_len; ++i) {
+          const std::size_t take = std::min<std::size_t>(segs[i].len, cmp_len - done);
+          const int c = std::memcmp(segs[i].ptr, needle + done, take);
+          if(c != 0) {
+            return c;
+          }
+          done += take;
+        }
+        return 0;
+      }
+    }
+    if(const std::uint8_t* p = source.try_ptr(offset, len)) {
+      return std::memcmp(p, needle, cmp_len);
+    }
+    std::vector<std::uint8_t> scratch(cmp_len);
+    if(source.peek(offset, scratch.data(), cmp_len) != cmp_len) {
+      throw std::runtime_error("flat_memcmp_prefix: short read");
+    }
+    return std::memcmp(scratch.data(), needle, cmp_len);
   }
 
 } // namespace serialization

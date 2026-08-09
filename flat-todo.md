@@ -7,7 +7,7 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 - [x] Trailer: `K==0` → brak; `K>0` → `[format][cps…][format]` (duplikat na końcu)
 - [x] format bits 0–1: szerokość offsetu (0→u8, 1→u16, 2→u32)
 - [x] Pointer: fixed i32 LE delta; bez `save_offset`; ciała w `write_rest`
-- [x] Out of scope v1: wrapping view bez materialize, `view.name()`, RPC na flat, ewolucja schematu
+- [x] Out of scope v1: `view.name()`, RPC na flat, ewolucja schematu
 
 ## Pliki
 
@@ -17,6 +17,7 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 - [x] `src/serialization/flat_source.hpp`
 - [x] `src/serialization/flat_buffer_reader.hpp`
 - [x] `src/serialization/flat_view.hpp`
+- [x] `src/serialization/flat_bytes.hpp` (`flat_string` / `flat_bytes`)
 - [x] `src/serialization/flat_bytes_writer.hpp`
 - [x] `src/test/serialization_flat_ut.cpp`
 - [x] `src/test/serialization_flat_circular_ut.cpp`
@@ -58,7 +59,7 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 - [x] get<^^> / get<"name">
 - [x] nested / vector
 - [x] shared_ptr → shared_ptr\<flat_view\<T\>\>
-- [x] `flat_root_circular` / `flat_root_shared_circular` (contig zero-copy / wrap materialize)
+- [x] `flat_root_circular` / `flat_root_shared_circular` (circular session; string/binary borrow lub per-field own)
 - [x] UT (+ circular)
 
 ### 8. Mapa SoA
@@ -73,6 +74,4 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 
 ## Później
 
-- [ ] wrapping `flat_view` bez pełnego materialize (per-field scratch)
 - [ ] `view.name()` codegen / injection
-- [ ] `write_sequence` (reserve offsetów kontenerów)

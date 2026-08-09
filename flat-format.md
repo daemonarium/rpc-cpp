@@ -2,7 +2,7 @@
 
 Format zoptymalizowany pod **szybki odczyt** (w tym odczyt w miejscu i dostęp swobodny do pól) oraz **wydajny jednoprzebiegowy zapis**. Współdzieli kontrakt `Writer` / `Reader` oraz `serialize` / `deserialize` z formatem skompresowanym; inny jest układ bajtów i znaczenie `begin_frame` / `end_frame` / `save_offset`.
 
-Status: **zaimplementowany** (`flat_stream_*`, `flat_buffer_reader`, `flat_view`, `circular_flat_source`). Checklist: [flat-todo.md](flat-todo.md).
+Status: **zaimplementowany** (`flat_stream_*`, `flat_buffer_reader`, `flat_view`, `flat_string`/`flat_bytes`, circular session). Checklist: [flat-todo.md](flat-todo.md).
 
 Powiązane: [README.md](README.md), [compressed-format.md](compressed-format.md).
 
@@ -34,7 +34,7 @@ Powiązane: [README.md](README.md), [compressed-format.md](compressed-format.md)
 | Trailing `N` | **nie** — `K` ze schematu / `write_length` + reguł kontenera |
 | Pointer delta | **i32 LE** (`0` null, `<0` already, `>0` later 1-based) |
 | `is_indexed()` | `true` dla buffer readera |
-| Medium | stream (blob), `FlatSource` (`span_flat_source`, `circular_flat_source`) |
+| Medium | stream (blob), `FlatSource`, `flat_session` (span / circular window) |
 
 Format flat i skompresowany **nie są** wzajemnie kompatybilne bajtowo.
 
@@ -165,16 +165,16 @@ Zapis: staging bajtów kluczy + deskryptory → sort → emit SoA (wartości ser
 |-----------|------|
 | `flat_stream_writer` / `flat_stream_reader` | ostream / istream |
 | `flat_buffer_reader` + `FlatSource` | `span_flat_source` / `circular_flat_source` (peek, `get_segments` / `try_ptr`, także przez szew) |
-| `flat_view` / `flat_root` / `flat_root_shared` | meta `get<>` / `flat_map_view`; grafy `shared_ptr` |
-| `flat_root_circular` / `flat_root_shared_circular` | view na `circular_buffer` (contig → zero-copy span; wrap → materialize) |
+| `flat_view` / `flat_root` / `flat_root_shared` | meta `get<>` → m.in. `flat_string` / `flat_bytes`; `flat_map_view`; grafy `shared_ptr` |
+| `flat_root_circular` / `flat_root_shared_circular` | `flat_session` na pierścieniu (wrap OK); string/binary: borrow jeśli contig, else własna kopia |
 
 ### Circular buffer — lifetime i contig
 
 - View / shared views są **krótkożyjące**: ważne do `skip_read` / grow bufora; single-thread.
-- **Value root** (`flat_root_circular`): contig `frame_len` → `flat_session` na span w pierścieniu; wrap → `peek` → `vector` → span view.
-- **Shared graph** (`flat_root_shared_circular`): contig całego `message_len` (delta + rest frames) → zero-copy; wrap message → materialize całego message → `flat_root_shared`.
+- **Value / shared root**: zawsze `flat_session(circular_buffer*, logical_len)` — bez materializacji całej ramki/message.
+- Nawigacja (`flat_view` / vector / map) zero-copy (peek / offsety); `get` string/binary → `flat_string` / `flat_bytes` (borrow w pierścień albo RAII kopia pola).
+- `flat_map_view::find`: porównanie kluczy przez segmenty / peek (bez contig całego keys blob).
 - `flat_buffer_reader<circular_flat_source>` nie wymaga contig — `peek` obsługuje szew; `read_rest` / typed jak na span.
-- Brak per-field scratch przy wrap w v1 (phase-2).
 
 ---
 
@@ -182,7 +182,6 @@ Zapis: staging bajtów kluczy + deskryptory → sort → emit SoA (wartości ser
 
 - Ewolucja schematu / field id
 - Współdzielone vtable FB
-- View na wrapping frame bez materialize (scratch / 2× memcmp) — phase-2
 - `view.name()` codegen
 - RPC wyłącznie na flat
 - Rygorystyczna walidacja OOB
