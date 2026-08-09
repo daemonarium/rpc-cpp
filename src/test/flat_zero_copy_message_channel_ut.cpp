@@ -237,4 +237,76 @@ int main() {
     expect(first_data == std::string("first"));
     expect(second_data == std::string("second"));
   };
+
+  "flat zero-copy channel send message with payload"_test = [] {
+    socket_loopback_pair sockets;
+
+    flat_zero_copy_socket_message_channel ch0(sockets.s0);
+    flat_zero_copy_socket_message_channel ch1(sockets.s1);
+
+    ch0.register_message_type<ping>();
+    ch1.register_message_type<ping>();
+
+    bool received = false;
+    std::uint64_t received_seq = 0;
+    size_t received_payload_size = 0;
+    std::uint64_t payload_value = 0;
+
+    ch1.on_message<ping>(std::function<void(flat_view<ping>&, size_t)>(
+      [&](flat_view<ping>& v, size_t payload_size) {
+        received = true;
+        received_seq = v.get<^^ping::seq>();
+        received_payload_size = payload_size;
+        if(payload_size > 0) {
+          ch1.reader().read_u64(payload_value);
+        }
+      }));
+
+    // Send ping with payload
+    auto& writer = ch0.begin_send(ping{7});
+    writer.write_u64(12345);
+    writer.write_rest();
+    ch0.commit_send();
+
+    sockets.transfer(sockets.s0, sockets.s1);
+    ch1.handle_data();
+
+    expect(received == true);
+    expect(received_seq == 7_u);
+    expect(received_payload_size == 8_u);
+    expect(payload_value == 12345_u);
+  };
+
+  "flat zero-copy channel unread payload skipped"_test = [] {
+    socket_loopback_pair sockets;
+
+    flat_zero_copy_socket_message_channel ch0(sockets.s0);
+    flat_zero_copy_socket_message_channel ch1(sockets.s1);
+
+    ch0.register_message_type<ping>();
+    ch1.register_message_type<ping>();
+
+    std::vector<std::uint64_t> received_seqs;
+
+    // Handler takes only flat_view — payload is ignored, framing skips it.
+    ch1.on_message<ping>(std::function<void(flat_view<ping>&)>([&](flat_view<ping>& v) {
+      received_seqs.push_back(v.get<^^ping::seq>());
+    }));
+
+    // First message: with payload (unread by handler)
+    auto& w = ch0.begin_send(ping{1});
+    w.write_u64(99999);
+    w.write_rest();
+    ch0.commit_send();
+
+    // Second message: simple (no payload)
+    ch0.send_message(ping{2});
+
+    sockets.transfer(sockets.s0, sockets.s1);
+    ch1.handle_data();
+
+    expect(received_seqs.size() == 2_u);
+    expect(received_seqs[0] == 1_u);
+    expect(received_seqs[1] == 2_u);
+  };
 }

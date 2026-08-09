@@ -103,6 +103,12 @@ namespace serialization {
         reader_->read_offset_ = 0;
       }
 
+      // Called by framing.commit_send after the caller has written any payload.
+      // No-op for compressed: payload_size is derived on read (msg_len - cursor),
+      // no size field is stamped into the wire. Flat codecs override to poke
+      // payload_size into the header.
+      void finalize_send() {}
+
       // Read type index and dispatch to the registered handler.
       // Throws std::runtime_error on unknown index. Framing is responsible for
       // skipping msg_len bytes after dispatch (including on throw).

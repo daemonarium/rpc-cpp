@@ -63,6 +63,9 @@ namespace {
       }
     }
 
+    // Stamp payload_size into the header (mirrors framing.commit_send).
+    codec.finalize_send();
+
     uint32_t payload_len = codec.writer().write_offset_ - sizeof(uint32_t);
     circular_buffer_poke(cb, 0, &payload_len, sizeof(payload_len));
     circular_buffer_commit_write(cb, codec.writer().write_offset_);
@@ -154,6 +157,7 @@ int main() {
     codec.writer().write_offset_ = sizeof(placeholder);
     codec.write_message_header(ping{7});
     codec.writer().write_u64(12345);
+    codec.finalize_send();
     uint32_t payload_len = codec.writer().write_offset_ - sizeof(uint32_t);
     circular_buffer_poke(env.cb, 0, &payload_len, sizeof(payload_len));
     circular_buffer_commit_write(env.cb, codec.writer().write_offset_);
@@ -195,11 +199,13 @@ int main() {
     codec.register_message_type<ping>();
 
     // Manually craft a frame with type index 5 (out of range)
-    // Flat format: raw u32 LE index + dummy body
+    // Flat format: [type index 4B][root_frame_size 4B][payload_size 4B][body]
     uint32_t placeholder = 0;
     circular_buffer_poke(env.cb, 0, &placeholder, sizeof(placeholder));
     codec.writer().write_offset_ = sizeof(placeholder);
     codec.writer().write_u32(static_cast<std::uint32_t>(5)); // unknown index
+    codec.writer().write_u32(0); // root_frame_size (dummy)
+    codec.writer().write_u32(0); // payload_size (dummy)
     codec.writer().write_u64(0); // dummy body
     codec.writer().write_rest();
     uint32_t payload_len = codec.writer().write_offset_ - sizeof(uint32_t);

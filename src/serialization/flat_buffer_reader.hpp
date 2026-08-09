@@ -309,6 +309,16 @@ namespace serialization {
       const Source& source() const { return source_; }
       std::size_t cursor() const { return cursor_; }
 
+      // Advance the cursor by n bytes without reading (no copy). Used by
+      // zero-copy dispatch to position the reader over the payload region
+      // that follows the flat frame(s). Bounds-checked against source size.
+      void skip(std::size_t n) {
+        if(cursor_ + n > source_.size()) {
+          throw std::runtime_error("flat_buffer_reader skip out of range");
+        }
+        cursor_ += n;
+      }
+
       // Reset reader to the start of the current readable region for a new
       // message frame. Preserves registered deserialize functions. Called by
       // codec.reset_for_dispatch() between messages.

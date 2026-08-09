@@ -52,6 +52,24 @@ namespace {
     circular_buffer_poke(cb, 0, &placeholder, sizeof(placeholder));
     codec.writer().write_offset_ = sizeof(placeholder);
     codec.write_message_header<T>(msg);
+    // Stamp payload_size (mirrors framing.commit_send).
+    codec.finalize_send();
+    uint32_t payload_len = codec.writer().write_offset_ - sizeof(uint32_t);
+    circular_buffer_poke(cb, 0, &payload_len, sizeof(payload_len));
+    circular_buffer_commit_write(cb, codec.writer().write_offset_);
+    return payload_len;
+  }
+
+  // Write a message with a raw payload appended after the header. Returns msg_len.
+  template <typename T>
+  size_t write_frame_with_payload(flat_zero_copy_codec& codec, struct circular_buffer* cb,
+                                  const T& msg, std::function<void(flat_circular_buffer_writer&)> write_payload) {
+    uint32_t placeholder = 0;
+    circular_buffer_poke(cb, 0, &placeholder, sizeof(placeholder));
+    codec.writer().write_offset_ = sizeof(placeholder);
+    codec.write_message_header<T>(msg);
+    write_payload(codec.writer());
+    codec.finalize_send();
     uint32_t payload_len = codec.writer().write_offset_ - sizeof(uint32_t);
     circular_buffer_poke(cb, 0, &payload_len, sizeof(payload_len));
     circular_buffer_commit_write(cb, codec.writer().write_offset_);
@@ -145,10 +163,13 @@ int main() {
     codec.register_message_type<ping>();
 
     // Manually craft a frame with type index 5 (out of range)
+    // Flat format: [type index 4B][root_frame_size 4B][payload_size 4B][body]
     uint32_t placeholder = 0;
     circular_buffer_poke(env.cb, 0, &placeholder, sizeof(placeholder));
     codec.writer().write_offset_ = sizeof(placeholder);
     codec.writer().write_u32(static_cast<std::uint32_t>(5)); // unknown index
+    codec.writer().write_u32(0); // root_frame_size (dummy)
+    codec.writer().write_u32(0); // payload_size (dummy)
     codec.writer().write_u64(0); // dummy body
     codec.writer().write_rest();
     uint32_t payload_len = codec.writer().write_offset_ - sizeof(uint32_t);
@@ -245,5 +266,89 @@ int main() {
     expect(out->next->next->next == nullptr);
 
     circular_buffer_destroy(cb);
+  };
+
+  "flat zero-copy dispatch with payload"_test = [] {
+    codec_buffers env;
+    auto& codec = env.codec;
+
+    codec.register_message_type<ping>();
+
+    bool received = false;
+    std::uint64_t received_seq = 0;
+    size_t received_payload_size = 0;
+    std::uint64_t payload_value = 0;
+    codec.on_message<ping>(std::function<void(flat_view<ping>&, size_t)>(
+      [&](flat_view<ping>& v, size_t payload_size) {
+        received = true;
+        received_seq = v.get<^^ping::seq>();
+        received_payload_size = payload_size;
+        if(payload_size > 0) {
+          codec.reader().read_u64(payload_value);
+        }
+      }));
+
+    size_t msg_len = write_frame_with_payload(codec, env.cb, ping{7}, [](flat_circular_buffer_writer& w) {
+      w.write_u64(12345);
+    });
+    dispatch_frame(codec, env.cb, msg_len);
+
+    expect(received == true);
+    expect(received_seq == 7_u);
+    expect(received_payload_size == 8_u);
+    expect(payload_value == 12345_u);
+  };
+
+  "flat zero-copy dispatch payload ignored by no-payload handler"_test = [] {
+    codec_buffers env;
+    auto& codec = env.codec;
+
+    codec.register_message_type<ping>();
+
+    bool received = false;
+    std::uint64_t received_seq = 0;
+    // Handler takes only flat_view — payload is ignored, framing skips it.
+    codec.on_message<ping>(std::function<void(flat_view<ping>&)>([&](flat_view<ping>& v) {
+      received = true;
+      received_seq = v.get<^^ping::seq>();
+    }));
+
+    size_t msg_len = write_frame_with_payload(codec, env.cb, ping{9}, [](flat_circular_buffer_writer& w) {
+      w.write_u64(0xDEAD);
+      w.write_u64(0xBEEF);
+    });
+    dispatch_frame(codec, env.cb, msg_len);
+
+    expect(received == true);
+    expect(received_seq == 9_u);
+  };
+
+  "flat zero-copy string field with payload simultaneously"_test = [] {
+    codec_buffers env;
+    auto& codec = env.codec;
+
+    codec.register_message_type<pong>();
+
+    std::uint64_t received_seq = 0;
+    std::string received_data;
+    size_t received_payload_size = 0;
+    std::uint64_t payload_value = 0;
+    codec.on_message<pong>(std::function<void(flat_view<pong>&, size_t)>(
+      [&](flat_view<pong>& v, size_t payload_size) {
+        received_seq = v.get<^^pong::seq>();
+        received_data = std::string(std::string_view(v.get<^^pong::data>()));
+        received_payload_size = payload_size;
+        codec.reader().read_u64(payload_value);
+      }));
+
+    size_t msg_len = write_frame_with_payload(codec, env.cb, pong{1, "hello"}, [](flat_circular_buffer_writer& w) {
+      w.write_u64(4242);
+    });
+    dispatch_frame(codec, env.cb, msg_len);
+
+    expect(received_seq == 1_u);
+    expect(received_data == std::string("hello"));
+    expect(received_payload_size == 8_u);
+    expect(payload_value == 4242_u);
   };
 }

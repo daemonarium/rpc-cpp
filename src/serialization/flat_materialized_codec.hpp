@@ -85,6 +85,13 @@ namespace serialization {
 
       // Write type index + serialized header. Called by framing.begin_send<T>()
       // after the length-prefix placeholder is reserved and writer offset set.
+      //
+      // Flat wire format (body, after length prefix):
+      //   [type index 4B u32 LE][root_frame_size 4B u32 LE][payload_size 4B u32 LE]
+      //   [root T frame][shared sub-frames][payload]
+      // root_frame_size is stamped here (known after serialize). payload_size
+      // is stamped by finalize_send() (called from framing.commit_send) once
+      // the caller has written any payload bytes.
       template <typename T>
       void write_message_header(const T& message) {
         auto type = std::type_index(typeid(T));
@@ -94,8 +101,29 @@ namespace serialization {
         }
         size_t index = it->second;
         writer_->write_u32(static_cast<std::uint32_t>(index));
+
+        // root_frame_size placeholder (filled after serialize)
+        root_frame_size_field_offset_ = writer_->write_offset_;
+        writer_->write_u32(0);
+        // payload_size placeholder (filled by finalize_send)
+        payload_size_field_offset_ = writer_->write_offset_;
+        writer_->write_u32(0);
+
+        std::size_t frame_start = writer_->write_offset_;
         serialize(*writer_, message);
+        std::size_t root_frame_size = writer_->write_offset_ - frame_start;
+        poke_u32(root_frame_size_field_offset_, static_cast<std::uint32_t>(root_frame_size));
+
         writer_->write_rest();
+        payload_start_ = writer_->write_offset_;
+      }
+
+      // Stamp payload_size into the header once payload (if any) is written.
+      // Called by framing.commit_send before the length prefix is committed.
+      void finalize_send() {
+        std::uint32_t payload_size =
+          static_cast<std::uint32_t>(writer_->write_offset_ - payload_start_);
+        poke_u32(payload_size_field_offset_, payload_size);
       }
 
       // Reset reader for a new message frame. Called by framing before dispatch.
@@ -111,6 +139,12 @@ namespace serialization {
 
         std::uint32_t index;
         reader_->read_u32(index);
+        // Skip root_frame_size and payload_size — materialized derives
+        // payload_size from (msg_len - cursor) after deserialize+read_rest,
+        // so the header size fields are not needed on this path.
+        std::uint32_t ignored;
+        reader_->read_u32(ignored);
+        reader_->read_u32(ignored);
 
         if(index >= dispatch_table_.size()) {
           throw std::runtime_error("Unknown message type index: " + std::to_string(index));
@@ -131,6 +165,17 @@ namespace serialization {
       std::unordered_map<std::type_index, std::function<void(void*, size_t)>> message_handlers_;
 
       size_t current_msg_len_ = 0;
+
+      // Offsets of the flat header size fields within the output buffer, and
+      // the write offset at which payload (if any) begins. Set by
+      // write_message_header, consumed by finalize_send.
+      std::size_t root_frame_size_field_offset_ = 0;
+      std::size_t payload_size_field_offset_ = 0;
+      std::size_t payload_start_ = 0;
+
+      void poke_u32(std::size_t abs_offset, std::uint32_t value) {
+        circular_buffer_poke(writer_->buffer_, abs_offset, &value, sizeof(value));
+      }
   };
 
 } // namespace serialization

@@ -90,6 +90,7 @@ namespace serialization {
 
       // Commit a message started with begin_send. Writes length prefix and flushes.
       void commit_send() {
+        codec_->finalize_send();
         uint32_t payload_len = codec_->writer().write_offset_ - sizeof(uint32_t);
         circular_buffer_poke(&socket_->output_buffer, 0, &payload_len, sizeof(payload_len));
         circular_buffer_commit_write(&socket_->output_buffer, codec_->writer().write_offset_);
