@@ -2,6 +2,7 @@
 
 #include "circular_buffer_reader.hpp"
 #include "circular_buffer_writer.hpp"
+#include "message_codec_base.hpp"
 #include "serialize.hpp"
 #include "deserialize.hpp"
 
@@ -20,51 +21,32 @@ extern "C" {
 
 namespace serialization {
 
-  // Compressed-format codec: owns circular_buffer_reader/writer, dispatch table,
-  // message handlers, type/exception/dynamic registrations.
-  //
-  // Framing (length-prefix, socket I/O) is handled by socket_message_framing<Codec>.
-  // This codec is format-specific: type index is uvarint64, payload uses compressed
-  // (varint) encoding via circular_buffer_reader/writer.
-  class compressed_codec {
+  // Compressed-format codec: owns circular_buffer_reader/writer, format-specific
+  // type index (uvarint64) and dispatch handler (materialize T). Framing
+  // (length-prefix, socket I/O) is handled by socket_message_framing<Codec>.
+  class compressed_codec
+    : public message_codec_base<compressed_codec, circular_buffer_reader, circular_buffer_writer> {
     public:
       compressed_codec(struct circular_buffer* input_buffer, struct circular_buffer* output_buffer)
         : reader_(std::make_unique<circular_buffer_reader>(input_buffer, 0)),
           writer_(std::make_unique<circular_buffer_writer>(output_buffer, 0)) {}
 
+      std::uint64_t read_type_index() {
+        std::uint64_t index;
+        reader_->read_u64(index);
+        return index;
+      }
+
       template <typename T>
-      void register_message_type() {
-        writer_->register_serialize_message_function<T>();
-
-        size_t index = dispatch_table_.size();
-        message_type_indexes_[std::type_index(typeid(T))] = index;
-
-        dispatch_table_.push_back([this]() {
+      std::function<void()> make_dispatch_handler() {
+        return [this]() {
           T msg;
           deserialize(*reader_, msg);
           reader_->read_rest();
 
           size_t payload_size = current_msg_len_ - reader_->read_offset_;
-
-          auto it = message_handlers_.find(std::type_index(typeid(T)));
-          if(it != message_handlers_.end()) {
-            it->second(&msg, payload_size);
-          }
-          // Framing does circular_buffer_skip_read(msg_len) after dispatch returns,
-          // which automatically skips any unread payload.
-        });
-      }
-
-      template <typename T>
-      void register_exception_type() {
-        writer_->register_serialize_exception_function<T>();
-        reader_->register_deserialize_exception_function<T>();
-      }
-
-      template <typename T>
-      void register_dynamic_type() {
-        writer_->register_serialize_typed_function<T>();
-        reader_->register_deserialize_typed_function<T>();
+          invoke_handler<T>(&msg, payload_size);
+        };
       }
 
       template <typename T>
@@ -98,31 +80,8 @@ namespace serialization {
         writer_->write_rest();
       }
 
-      // Reset reader for a new message frame. Called by framing before dispatch.
       void reset_for_dispatch() {
         reader_->read_offset_ = 0;
-      }
-
-      // Called by framing.commit_send after the caller has written any payload.
-      // No-op for compressed: payload_size is derived on read (msg_len - cursor),
-      // no size field is stamped into the wire. Flat codecs override to poke
-      // payload_size into the header.
-      void finalize_send() {}
-
-      // Read type index and dispatch to the registered handler.
-      // Throws std::runtime_error on unknown index. Framing is responsible for
-      // skipping msg_len bytes after dispatch (including on throw).
-      void dispatch(size_t msg_len) {
-        current_msg_len_ = msg_len;
-
-        std::uint64_t index;
-        reader_->read_u64(index);
-
-        if(index >= dispatch_table_.size()) {
-          throw std::runtime_error("Unknown message type index: " + std::to_string(index));
-        }
-
-        dispatch_table_[static_cast<std::size_t>(index)]();
       }
 
       circular_buffer_reader& reader() { return *reader_; }
@@ -131,12 +90,6 @@ namespace serialization {
     private:
       std::unique_ptr<circular_buffer_reader> reader_;
       std::unique_ptr<circular_buffer_writer> writer_;
-
-      std::vector<std::function<void()>> dispatch_table_;
-      std::unordered_map<std::type_index, size_t> message_type_indexes_;
-      std::unordered_map<std::type_index, std::function<void(void*, size_t)>> message_handlers_;
-
-      size_t current_msg_len_ = 0;
   };
 
 } // namespace serialization

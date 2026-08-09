@@ -4,6 +4,7 @@
 #include "flat_buffer_reader.hpp"
 #include "flat_circular_buffer_writer.hpp"
 #include "flat_source.hpp"
+#include "message_codec_base.hpp"
 #include "serialize.hpp"
 #include "deserialize.hpp"
 
@@ -45,21 +46,30 @@ namespace serialization {
   // payload_size).
   //
   // flat_view is valid only during dispatch (before framing.skip_read).
-  class flat_zero_copy_codec {
+  class flat_zero_copy_codec
+    : public message_codec_base<flat_zero_copy_codec,
+        flat_buffer_reader<circular_flat_source>, flat_circular_buffer_writer> {
     public:
       flat_zero_copy_codec(struct circular_buffer* input_buffer, struct circular_buffer* output_buffer)
         : input_buffer_(input_buffer),
           reader_(std::make_unique<flat_buffer_reader<circular_flat_source>>(circular_flat_source(input_buffer))),
           writer_(std::make_unique<flat_circular_buffer_writer>(output_buffer, 0)) {}
 
+      std::uint32_t read_type_index() {
+        std::uint32_t index;
+        reader_->read_u32(index);
+        // Consume the root frame's per-frame size prefix (encoded_size_0).
+        // flat_root_shared_on_session re-reads it from body_offset, so we
+        // advance the reader past it here for cursor bookkeeping.
+        std::uint32_t root_encoded_size;
+        reader_->read_u32(root_encoded_size);
+        (void)root_encoded_size;
+        return index;
+      }
+
       template <typename T>
-      void register_message_type() {
-        writer_->register_serialize_message_function<T>();
-
-        size_t index = dispatch_table_.size();
-        message_type_indexes_[std::type_index(typeid(T))] = index;
-
-        dispatch_table_.push_back([this]() {
+      std::function<void()> make_dispatch_handler() {
+        return [this]() {
           // dispatch already read: type index + encoded_size_0 (root prefix).
           // cursor is now at body_offset = start of the root frame body.
           size_t body_offset = reader_->cursor() - sizeof(std::uint32_t);
@@ -90,26 +100,10 @@ namespace serialization {
           }
 
           std::size_t payload_size = current_msg_len_ - cursor;
-
-          auto it = message_handlers_.find(std::type_index(typeid(T)));
-          if(it != message_handlers_.end()) {
-            it->second(view.get(), payload_size);
-          }
+          invoke_handler<T>(view.get(), payload_size);
           // Framing does circular_buffer_skip_read(msg_len) after dispatch
           // returns — flat_view/session must not outlive the handler.
-        });
-      }
-
-      template <typename T>
-      void register_exception_type() {
-        writer_->register_serialize_exception_function<T>();
-        reader_->register_deserialize_exception_function<T>();
-      }
-
-      template <typename T>
-      void register_dynamic_type() {
-        writer_->register_serialize_typed_function<T>();
-        reader_->register_deserialize_typed_function<T>();
+        };
       }
 
       // Handler without payload: payload (if any) is ignored, framing skips it.
@@ -157,35 +151,8 @@ namespace serialization {
         payload_start_ = writer_->write_offset_;
       }
 
-      // No-op: sentinel is written in write_message_header, payload_size is
-      // derived by dispatch. Kept for socket_message_framing<Codec> compatibility.
-      void finalize_send() {}
-
-      // Reset reader for a new message frame. Called by framing before dispatch.
       void reset_for_dispatch() {
         reader_->reset();
-      }
-
-      // Read type index + encoded_size_0, dispatch to the registered handler.
-      // Throws std::runtime_error on unknown index. Framing is responsible for
-      // skipping msg_len bytes after dispatch (including on throw).
-      void dispatch(size_t msg_len) {
-        current_msg_len_ = msg_len;
-
-        std::uint32_t index;
-        reader_->read_u32(index);
-        // Consume the root frame's per-frame size prefix (encoded_size_0).
-        // flat_root_shared_on_session re-reads it from body_offset, so we
-        // advance the reader past it here for cursor bookkeeping.
-        std::uint32_t root_encoded_size;
-        reader_->read_u32(root_encoded_size);
-        (void)root_encoded_size;
-
-        if(index >= dispatch_table_.size()) {
-          throw std::runtime_error("Unknown message type index: " + std::to_string(index));
-        }
-
-        dispatch_table_[static_cast<std::size_t>(index)]();
       }
 
       flat_buffer_reader<circular_flat_source>& reader() { return *reader_; }
@@ -195,12 +162,6 @@ namespace serialization {
       struct circular_buffer* input_buffer_;
       std::unique_ptr<flat_buffer_reader<circular_flat_source>> reader_;
       std::unique_ptr<flat_circular_buffer_writer> writer_;
-
-      std::vector<std::function<void()>> dispatch_table_;
-      std::unordered_map<std::type_index, size_t> message_type_indexes_;
-      std::unordered_map<std::type_index, std::function<void(void*, size_t)>> message_handlers_;
-
-      size_t current_msg_len_ = 0;
 
       std::size_t payload_start_ = 0;
 

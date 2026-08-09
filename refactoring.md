@@ -131,6 +131,7 @@ Templatowane na codec, dziedziczą
 | 5. `flat_zero_copy_codec` | **Done** | `flat_zero_copy_codec.hpp` (nowy), `socket_message_framing.hpp` (generyczny `on_message<T,Handler>`), `socket_message_channel.hpp` (+alias `flat_zero_copy_socket_message_channel`); testy: `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
 | 5b. Payload w flat zero-copy | **Done** | `flat_buffer_reader.hpp` (+`skip(n)`), `compressed_codec.hpp` (+`finalize_send()` no-op), `socket_message_framing.hpp` (`commit_send` woła `finalize_send`), `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (12-bajtowy nagłówek: index + root_frame_size + payload_size + `finalize_send` pokuje payload_size); testy: payload w `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
 | 5c. Full zero-copy grafów `shared_ptr` | **Done** | `flat_stream_writer.hpp` + `flat_circular_buffer_writer.hpp` (+`mark_written_pointer`, `poke_u32`, per-frame size prefix w `write_rest`), `flat_stream_reader.hpp` + `flat_buffer_reader.hpp` (+`mark_read_pointer`), `flat_view.hpp` (`flat_root_shared_on_session` z `body_offset` — walk prefiksów, `resolve_delta` relatywne do bieżącej ramki, usunięto `measure_frame`/`later_slots_`), `serialize.hpp`/`deserialize.hpp` (`make_shared_write_later`/`make_shared_read_later`), `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (nowy wire format: per-frame size prefix + sentinel, `finalize_send` no-op); testy: `serialization_flat_generated_ut.cpp` (32 grafy z cyklami + `flat_view`), `serialization_flat_ut.cpp`, `serialization_flat_circular_ut.cpp`, `serialization_flat_circular_writer_ut.cpp`, `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
+| 5d. Deduplikacja codec (CRTP baza) | **Done** | `message_codec_base.hpp` (nowy, CRTP baza: `dispatch_table_`/`message_type_indexes_`/`message_handlers_`/`current_msg_len_`, `register_exception_type`/`register_dynamic_type`/`register_message_type` szkielet, `dispatch` szkielet, `finalize_send` no-op, `invoke_handler<T>`), `compressed_codec.hpp` + `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (dziedziczą z bazy, usunięto duplikat map i szkieletów, format-specyficzne hooki w pochodnych: `reader`/`writer`/`read_type_index`/`write_message_header`/`make_dispatch_handler`/`reset_for_dispatch`/`on_message`); testy: bez zmian, wszystkie codec/channel/RPC przechodzą |
 | 6. Stemplować RPC na codec | Pending | — |
 
 Po kroku 5c `flat_zero_copy_codec` obsługuje **full zero-copy grafów `shared_ptr`**:
@@ -201,6 +202,14 @@ zero-copy) jest wspólny i interoperacyjny: per-frame size prefix + 0 sentinel
    `flat_root_shared_on_session` z `body_offset` (walk prefiksów, bez
    `measure_frame`), `mark_written_pointer`/`mark_read_pointer` (root
    deref-serializowany), `resolve_delta` relatywne do bieżącej ramki. **[DONE]**
+5d. **Deduplikacja codec (CRTP baza `message_codec_base`)** — wyciągnięcie
+   współdzielonych map (`dispatch_table_`/`message_type_indexes_`/`message_handlers_`/`current_msg_len_`)
+   i szkieletów (`register_exception_type`/`register_dynamic_type`/`register_message_type`/`dispatch`/`finalize_send`/`invoke_handler`)
+   do CRTP bazy `message_codec_base<Derived, Reader, Writer>`; `compressed_codec`,
+   `flat_materialized_codec`, `flat_zero_copy_codec` dziedziczą z bazy i
+   dostarczają tylko format-specyficzne hooki (`reader`/`writer`/`read_type_index`/
+   `write_message_header`/`make_dispatch_handler`/`reset_for_dispatch`/`on_message`).
+   API publiczne bez zmian, testy bez modyfikacji. **[DONE]**
 6. **Stemplować `socket_rpc_server`/`socket_rpc_client` na codec**, usunąć
    duplikat `process_call`.
 
