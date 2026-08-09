@@ -130,39 +130,48 @@ Templatowane na codec, dziedziczą
 | 4. `flat_materialized_codec` | **Done** | `flat_materialized_codec.hpp` (nowy), `flat_buffer_reader.hpp` (+`reset()`), `socket_message_channel.hpp` (+alias `flat_socket_message_channel`); test: `flat_materialized_codec_ut.cpp` |
 | 5. `flat_zero_copy_codec` | **Done** | `flat_zero_copy_codec.hpp` (nowy), `socket_message_framing.hpp` (generyczny `on_message<T,Handler>`), `socket_message_channel.hpp` (+alias `flat_zero_copy_socket_message_channel`); testy: `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
 | 5b. Payload w flat zero-copy | **Done** | `flat_buffer_reader.hpp` (+`skip(n)`), `compressed_codec.hpp` (+`finalize_send()` no-op), `socket_message_framing.hpp` (`commit_send` woła `finalize_send`), `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (12-bajtowy nagłówek: index + root_frame_size + payload_size + `finalize_send` pokuje payload_size); testy: payload w `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
+| 5c. Full zero-copy grafów `shared_ptr` | **Done** | `flat_stream_writer.hpp` + `flat_circular_buffer_writer.hpp` (+`mark_written_pointer`, `poke_u32`, per-frame size prefix w `write_rest`), `flat_stream_reader.hpp` + `flat_buffer_reader.hpp` (+`mark_read_pointer`), `flat_view.hpp` (`flat_root_shared_on_session` z `body_offset` — walk prefiksów, `resolve_delta` relatywne do bieżącej ramki, usunięto `measure_frame`/`later_slots_`), `serialize.hpp`/`deserialize.hpp` (`make_shared_write_later`/`make_shared_read_later`), `flat_materialized_codec.hpp` + `flat_zero_copy_codec.hpp` (nowy wire format: per-frame size prefix + sentinel, `finalize_send` no-op); testy: `serialization_flat_generated_ut.cpp` (32 grafy z cyklami + `flat_view`), `serialization_flat_ut.cpp`, `serialization_flat_circular_ut.cpp`, `serialization_flat_circular_writer_ut.cpp`, `flat_zero_copy_codec_ut.cpp`, `flat_zero_copy_message_channel_ut.cpp` |
 | 6. Stemplować RPC na codec | Pending | — |
 
-Po kroku 5b `flat_zero_copy_codec` obsługuje payload: handler dostaje
-`flat_view<T>&` + `payload_size`, czyta surowe bajty payloadu przez `channel.reader()`
-(reader pozycjonowany na payload przez `skip`). Wire format flat (materialized
-i zero-copy) jest wspólny i interoperacyjny: 12-bajtowy nagłówek
-`[type index][root_frame_size][payload_size]` przed ramką. Compressed bez zmian.
+Po kroku 5c `flat_zero_copy_codec` obsługuje **full zero-copy grafów `shared_ptr`**:
+handler dostaje `flat_view<T>&` z powiązanymi polami `shared_ptr<U>` (graf
+homogeniczny T), bez materializacji. Wire format flat (materialized i
+zero-copy) jest wspólny i interoperacyjny: per-frame size prefix + 0 sentinel
+(zamiast 12-bajtowego nagłówka z 5b). Compressed bez zmian.
 
-### Wire format flat
+### Wire format flat (po 5c)
 
 ```
-[length prefix 4B][type index 4B u32 LE][root_frame_size 4B u32 LE][payload_size 4B u32 LE]
-                 [root T frame N_root B][shared sub-frames N_shared B][payload P B]
+[length prefix 4B][type index 4B u32 LE]
+                 [encoded_size_0 = N0+1 4B u32 LE][frame 0 = root T N0 B]
+                 [encoded_size_1 = N1+1][frame 1 sub N1 B] ...
+                 [0 sentinel 4B]
+                 [payload P B]
 ```
 
-- `root_frame_size = N_root` — rozmiar samej ramki root T (bez shared sub-frames).
-  Pozwala `flat_view<T>(session, body_offset, body_offset + N_root)` — `flat_view`
-  czyta trailer CPS z `end`, więc `end` musi być dokładnym końcem ramki root.
-- `payload_size = P` — payload leży na końcu: `payload_offset = msg_len - P`,
-  niezależne od `N_shared` (shared sub-frames między ramką root a payloadem).
-- `payload_size` wpisywany przez `codec.finalize_send()` (wołane z
-  `framing.commit_send` po zapisaniu payloadu) — w `write_message_header`
-  payload jeszcze nie jest znany (caller pisze go po `begin_send`).
+- `encoded_size_i = real_size_i + 1` (zero = sentinel, pusta ramka -> encoded 1).
+  Brak `root_delta` (root = frame 0), `root_frame_size`, `payload_size` w nagłówku.
+- Root jest deref-serializowany (`serialize(w, *value)`, nie `write_pointer`) i
+  pre-rejestrowany w `written_pointers_` przez `mark_written_pointer` — self-ref
+  roota (delta=-1) używa back-reference, nie duplikuje ramki.
+- Sub-frame w grafie: `[encoded_size_i][frame i]` (brak type index, graf
+  homogeniczny T). `write_rest` opakowuje każdy sub-frame per-frame prefixem.
+- `payload_size = msg_len - cursor` po sentinel — dispatch walkuje prefiksy
+  do sentinel, `reader_->skip` do payload.
+- Wyjątki/typed top-level: `[type index][encoded_size][frame][0 sentinel]`
+  (normalnie, jak wiadomości).
 - Compressed BEZ ZMIAN: `[index uvarint64][serialize][write_rest][payload]`,
-  `payload_size = msg_len - cursor` na odczycie.
+  `payload_size = msg_len - cursor` na odczyt.
 
-### Ograniczenia zero-copy v1
+### Zachowanie zero-copy (po 5c)
 
-- **shared_ptr grafy = nullptr.** `flat_view<T>` dla pól `shared_ptr<U>` zwraca
-  `session->pointer_at<U>()` = nullptr (bez `bind_pointers`). Full graph zero-copy
-  wymaga `flat_root_shared_on_session` z root delta offset 4 (nie 0) — to future
-  extension API `flat_view` (krok 5c). v1: handler widzi nullptr dla `shared_ptr`
-  pól, skalary/stringi zero-copy działają.
+- **shared_ptr grafy = full zero-copy.** `flat_view<T>` dla pól
+  `shared_ptr<U>` zwraca powiązane `flat_view<U>` (graf homogeniczny T).
+  `flat_root_shared_on_session<T>(session, body_offset, msg_len)` walkuje
+  per-frame size prefiksy, buduje pool `flat_view<T>` i binduje wskaźniki
+  przez `resolve_delta` (relatywne do bieżącej ramki: root delta=+m -> pool[m],
+  sub-frame i delta=+m -> pool[i+m-1]; back-ref delta<0 -> resolved_).
+  Self-ref roota i cykle obsługiwane (root pre-rejestrowany w `resolved_`).
 - **Payload obsługiwany.** Handler `void(flat_view<T>&, size_t payload_size)` czyta
   surowe bajty payloadu przez `channel.reader()` (pozycjonowany na payload przez
   `skip`). Handler `void(flat_view<T>&)` ignoruje payload (framing skipuje).
@@ -187,6 +196,11 @@ i zero-copy) jest wspólny i interoperacyjny: 12-bajtowy nagłówek
 5b. **Payload w flat zero-copy** — zmiana wire formatu flat (12-bajtowy nagłówek
    z `root_frame_size` + `payload_size`), `finalize_send` w framing, `skip` w
    readerze. **[DONE]**
+5c. **Full zero-copy grafów `shared_ptr`** — zmiana wire formatu flat na
+   per-frame size prefix + 0 sentinel (usunięto 12-bajtowy nagłówek z 5b),
+   `flat_root_shared_on_session` z `body_offset` (walk prefiksów, bez
+   `measure_frame`), `mark_written_pointer`/`mark_read_pointer` (root
+   deref-serializowany), `resolve_delta` relatywne do bieżącej ramki. **[DONE]**
 6. **Stemplować `socket_rpc_server`/`socket_rpc_client` na codec**, usunąć
    duplikat `process_call`.
 
