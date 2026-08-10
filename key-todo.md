@@ -24,3 +24,4 @@ Szczegóły: [key-format.md](key-format.md).
 
 - [ ] Lex string / tuple escape (osobny kontrakt)
 - [ ] Zero-copy circular decoder bez peek całego message
+- [x] Oznaczenie formatu `key` w blobie type_registry (`serialization_format::key`) — [type-registry-blob.md](type-registry-blob.md)

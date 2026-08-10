@@ -24,6 +24,8 @@ Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reade
 
 Szczegóły: **[compressed-format.md](compressed-format.md)**, **[flat-format.md](flat-format.md)**, **[key-format.md](key-format.md)**.
 
+Oznaczenie formatu danych w deskryptorze schematu: prefix `u8` w blobie `type_registry` / `rpc_description` — **[type-registry-blob.md](type-registry-blob.md)** (body registry zawsze compressed; envelope = compressed / flat / key).
+
 ---
 
 ## Architektura warstw

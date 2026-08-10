@@ -1,6 +1,7 @@
 #include "module.hpp"
 
-#include <serialization/stream_writer.hpp>
+#include <serialization/type_registry_blob.hpp>
+#include <serialization/type_description.hpp>
 #include <socket/socket.h>
 #include <memory>
 #include <utils/socket_handlers.hpp>
@@ -17,22 +18,7 @@ extern "C" size_t rpc_description(std::uint32_t socket, char** buffer) {
   // channel). Prefer returning 0 over propagating into the host.
   try {
     serialization::type_description::create(serialization::read_annotation(), registry);
-    std::ostringstream output_stream;
-    serialization::stream_writer writer(output_stream);
-
-    writer.register_serialize_typed_function<serialization::type_description>();
-    writer.register_serialize_typed_function<serialization::read_annotation>();
-
-    serialize(writer, registry);
-    writer.write_rest();
-
-    const auto& bytes = output_stream.str();
-    *buffer = (char*)malloc(bytes.size());
-    if(!*buffer) {
-      return 0;
-    }
-    memcpy(*buffer, bytes.data(), bytes.size());
-    return bytes.size();
+    return serialization::serialize_type_registry_blob_malloc(registry, buffer);
   } catch(...) {
     return 0;
   }

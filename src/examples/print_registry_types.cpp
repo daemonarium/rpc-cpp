@@ -1,7 +1,7 @@
 #include "serialization/type_registry.hpp"
-#include "serialization/stream_writer.hpp"
+#include "serialization/type_registry_blob.hpp"
+#include "serialization/type_description.hpp"
 #include "utils/printHex.hpp"
-#include "serialization/serialize.hpp"
 
 #include <iostream>
 
@@ -16,13 +16,8 @@ int main(int argc, char** argv) {
     std::cout << *type << std::endl;
   }
 
-
-  std::ostringstream output_stream;
-  serialization::stream_writer writer(output_stream);
-  writer.register_serialize_typed_function<serialization::type_description>();
-  serialize(writer, registry);
-  writer.write_rest();  
+  const std::string bytes = serialization::serialize_type_registry_blob(registry);
   std::cout << "Serialized registry:" << std::endl;
-  printHex(output_stream.str().data(), output_stream.str().size());
+  printHex(bytes.data(), bytes.size());
   return 0;
 }

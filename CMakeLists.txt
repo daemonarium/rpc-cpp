@@ -246,6 +246,13 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(type_registry_blob_ut src/test/type_registry_blob_ut.cpp ${IO_FILES})
+  target_include_directories(type_registry_blob_ut PRIVATE src)
+  target_link_libraries(type_registry_blob_ut PRIVATE Boost::ut)
+  set_target_properties(type_registry_blob_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   # --- Message channel tests ---
 
   add_executable(message_channel_ut src/test/message_channel_ut.cpp ${IO_FILES} ${SOCKET_FILES})
@@ -316,6 +323,7 @@ if(NOT WASM)
   add_test(NAME serialization_key_circular_ut COMMAND serialization_key_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_cb_ut COMMAND serialization_cb_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_types_ut COMMAND serialization_types_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME type_registry_blob_ut COMMAND type_registry_blob_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME message_channel_ut COMMAND message_channel_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME rpc_loopback_ut COMMAND rpc_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME socket_rpc_ut COMMAND socket_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
