@@ -15,7 +15,7 @@ Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reade
 
 | | [Skompresowany](compressed-format.md) | [Flat](flat-format.md) | [Key](key-format.md) |
 |--|--------------------------------------|------------------------|----------------------|
-| Status | zaimplementowany (`stream_*`, `circular_buffer_*`) | zaimplementowany (`flat_stream_*`, `flat_circular_buffer_writer`, `flat_buffer_reader`, `flat_view` / circular) | zaimplementowany (`key_stream_*`, `key_circular_buffer_*`) |
+| Status | legacy opt-in (`compressed_socket_rpc_*`, `stream_*`) | **domyślny** dla procesów / RPC (`flat_socket_rpc_*`, `flat_stream_*`, `flat_view` / circular) | zaimplementowany (`key_stream_*`, `key_circular_buffer_*`) |
 | Liczby | varint, float sortowalny | fixed LE | varint / float jak compressed (w **data**) |
 | Odczyt | sekwencyjny | sekwencyjny + in-place | data do przodu + meta (długości) osobno |
 | Długości | przed stringiem / w streamie | u32 LE / trailer | **meta** na końcu bloba (`[data][meta][u8]`) |
@@ -68,11 +68,13 @@ Oznaczenie formatu danych w deskryptorze schematu: prefix `u8` w blobie `type_re
 ```
 
 Trzy implementacje codec:
-- `compressed_codec` — format compressed, materializacja (obecne zachowanie).
-- `flat_materialized_codec` — format flat, materializacja do `T`.
+- `flat_materialized_codec` — format flat, materializacja do `T` (**domyślne zachowanie procesów**).
+- `compressed_codec` — format compressed, materializacja (legacy opt-in).
 - `flat_zero_copy_codec` — format flat, handler dostaje `flat_view<T>&` (zero-copy).
 
-Aliasy: `compressed_socket_rpc_server`/`client` = `socket_rpc_*<compressed_codec>`.
+Aliasy: `flat_socket_rpc_server`/`client` = `socket_rpc_*<flat_materialized_codec>`; `compressed_socket_rpc_server`/`client` = legacy opt-in.
+
+Przykładowe moduły (`module.hpp`): domyślnie flat; `WAOS_MODULE_RPC_COMPRESSED` wybiera compressed USER RPC.
 
 Dodatkowe elementy:
 

@@ -2,6 +2,7 @@
 
 #include "socket_rpc_client_base.hpp"
 #include "compressed_codec.hpp"
+#include "flat_materialized_codec.hpp"
 #include <functional>
 
 namespace serialization {
@@ -30,5 +31,6 @@ namespace serialization {
   };
 
   using compressed_socket_rpc_client = socket_rpc_client<compressed_codec>;
+  using flat_socket_rpc_client = socket_rpc_client<flat_materialized_codec>;
 
 } // namespace serialization

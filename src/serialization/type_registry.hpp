@@ -125,7 +125,7 @@ namespace serialization {
       std::unordered_map<std::string, std::shared_ptr<type_description>> types_by_name_;
 
       [[=serialization::policy::ignore]]
-      serialization_format data_format_ = serialization_format::compressed;
+      serialization_format data_format_ = serialization_format::flat;
   };
 
 }

@@ -74,6 +74,8 @@ namespace waos {
       static std::shared_ptr<serialization::promise<start_recording_result>> start_recording(start_recording_request request);
       static std::shared_ptr<serialization::promise<void>> stop_recording(std::uint64_t recording_id);
       static std::shared_ptr<serialization::promise<void>> dump(std::uint64_t recording_id);
+      /** Persist current window then clear io_bytes (unlike dump, which keeps the window). */
+      static std::shared_ptr<serialization::promise<void>> dump_and_clear(std::uint64_t recording_id);
       static std::shared_ptr<serialization::promise<void>> rotate(std::uint64_t recording_id);
   };
 

@@ -13,6 +13,7 @@ namespace serialization {
   requires(Binary<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_binary(std::move(value));
+    writer.save_offset();
   }
 
   template <class T, Writer W>
@@ -130,8 +131,12 @@ namespace serialization {
   template <class T, Writer W>
   requires(SimpleException<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
+    // Match TypeKind.Exception / type_description (what: string) as a flat UDT frame.
+    writer.begin_frame();
     std::string msg(value.what());
     serialize(writer, msg);
+    writer.end_frame();
+    writer.save_offset();
   }
 
   template <class T, Writer W, class B>

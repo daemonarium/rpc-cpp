@@ -14,7 +14,7 @@ namespace {
   constexpr std::uint64_t kKvPut = 0;
   constexpr std::uint64_t kKvGet = 1;
 
-  std::unique_ptr<serialization::compressed_socket_rpc_client> kv_client;
+  std::unique_ptr<serialization::flat_socket_rpc_client> kv_client;
 
   std::string balance_key(const std::string& addr) {
     return "bal." + addr;
@@ -35,7 +35,7 @@ namespace {
     // Socket 1: KERNEL_API (bound by host/shield). Socket 2: peer dbg_kv.
     socket_open(1, &opts);
     socket_open(2, &opts);
-    kv_client = std::make_unique<serialization::compressed_socket_rpc_client>(2);
+    kv_client = std::make_unique<serialization::flat_socket_rpc_client>(2);
     kv_client->register_basic_types();
     auto* client_ptr = kv_client.get();
     socket_handlers::register_socket_handler(2, [client_ptr]() {

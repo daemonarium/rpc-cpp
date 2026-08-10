@@ -42,4 +42,4 @@ Unknown reserved bits or format nibble ∉ `{0,1,2}` → deserialize error.
 | C++ | `serialization_format`, `serialize_type_registry_blob` / `deserialize_type_registry_blob` ([serialization_format.hpp](src/serialization/serialization_format.hpp), [type_registry_blob.hpp](src/serialization/type_registry_blob.hpp)); `type_registry::data_format()` |
 | TS | `SerializationFormat`, `serializeTypeRegistry` / `deserializeTypeRegistry`; `TypeRegistry.dataFormat` |
 
-Default on a new registry: **compressed**. Set `flat` / `key` explicitly when the container uses that data encoding.
+Default on a new registry: **flat**. Set `compressed` / `key` explicitly when the container uses that data encoding.

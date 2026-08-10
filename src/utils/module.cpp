@@ -43,7 +43,11 @@ extern "C" void start() {
     .flags = 0,
   };
   socket_open(0, &socket_options);
-  
+
+#if defined(WAOS_MODULE_RPC_COMPRESSED)
+  registry.set_data_format(serialization::serialization_format::compressed);
+#endif
+
   // Initialize socket_rpc_server after socket is opened
   rpc_server_ptr = std::make_unique<rpc_server_type>(0);
   

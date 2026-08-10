@@ -164,8 +164,11 @@ namespace serialization {
   template <SimpleException T, Reader R>
   requires(SimpleException<T> && Reader<R>)
   void deserialize(R& reader, T& value) {
+    reader.enter_frame();
     std::string msg;
     deserialize(reader, msg);
+    reader.exit_frame();
+    reader.save_offset();
     value = T(msg);
   }
 

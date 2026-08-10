@@ -78,6 +78,14 @@ if(WASM)
     )
     
   endforeach()
+
+  # Compressed USER face (peer modules use compressed_socket_rpc_* on sock 0).
+  if(TARGET dbg_cpeer)
+    target_compile_definitions(dbg_cpeer PRIVATE WAOS_MODULE_RPC_COMPRESSED)
+  endif()
+  if(TARGET dbg_cclient)
+    target_compile_definitions(dbg_cclient PRIVATE WAOS_MODULE_RPC_COMPRESSED)
+  endif()
 endif()
 
 # Native unit tests (Boost.UT)
