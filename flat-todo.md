@@ -2,6 +2,8 @@
 
 Szczegóły layoutu: [flat-format.md](flat-format.md).
 
+> Implementacja flat + cutover procesów na `flat_socket_rpc_*` (default wire): **done**. Gate: [../TESTING.md](../TESTING.md). Ten plik zostaje jako historyczna checklista layoutu.
+
 ## Zamrożony layout
 
 - [x] Trailer: `K==0` → brak; `K>0` → `[format][cps…][format]` (duplikat na końcu)

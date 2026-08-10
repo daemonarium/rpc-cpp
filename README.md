@@ -20,7 +20,7 @@ Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reade
 | Odczyt | sekwencyjny | sekwencyjny + in-place | data do przodu + meta (długości) osobno |
 | Długości | przed stringiem / w streamie | u32 LE / trailer | **meta** na końcu bloba (`[data][meta][u8]`) |
 | Grafy / mapy | tak | tak | **nie** (throw) |
-| Typowe użycie | RPC, transfer | mmap, hot-path read | klucze DB — `memcmp` bez length między polami |
+| Typowe użycie | legacy RPC / transfer (opt-in) | **domyślny RPC / procesy**, mmap, hot-path | klucze DB — `memcmp` bez length między polami |
 
 Szczegóły: **[compressed-format.md](compressed-format.md)**, **[flat-format.md](flat-format.md)**, **[key-format.md](key-format.md)**.
 
@@ -108,7 +108,7 @@ Backend odczytu:
 - **`is_indexed()`** + **`enter_indexed_frame(id)`** — przygotowane pod format z dostępem swobodnym (obecnie `is_indexed() == false`, indexed frame rzuca)
 - **`read_pointer` / `read_typed` / `read_rest()`** — odpowiednik `write_later` po stronie odczytu
 
-Obecne backendy stream i circular są **sekwencyjne** (`is_indexed() == false`). Haki frame/offset/indexed są świadomie zostawione pod przyszły format flat / indexed.
+Backendy **compressed** (`stream_*`, `circular_buffer_*`) są **sekwencyjne** (`is_indexed() == false`). Haki frame/offset/indexed obsługuje **flat** (`flat_stream_*`, `flat_view` / circular); indexed frame pozostaje dla ewentualnego dostępu swobodnego (dziś `is_indexed() == false` poza flat view paths).
 
 ---
 
@@ -344,3 +344,5 @@ src/test/io_circular_buffer_ut.cpp
 ```
 
 Przykłady: `src/examples/serialize_people.cpp`, `serialize_game.cpp`, `circular_buffer_serialization.test.cpp`.
+
+Release gate (monorepo): [TESTING.md](../TESTING.md) → `npm run gate`.

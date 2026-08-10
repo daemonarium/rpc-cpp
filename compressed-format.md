@@ -1,10 +1,13 @@
 # Format skompresowany (stream / circular)
 
+> **Legacy opt-in** — to **nie** jest domyślny wire procesów / RPC.
+> Domyślny RPC: [flat-format.md](flat-format.md) (`flat_socket_rpc_*`). Opt-in: C++ `WAOS_MODULE_RPC_COMPRESSED` / `compressed_socket_rpc_*`, TS `{ format: 'compressed' }`.
+
 Sekwencyjny format binarny używany przez `stream_writer` / `stream_reader` oraz `circular_buffer_writer` / `circular_buffer_reader`. Oba backendy dzielą **ten sam układ bajtów**; różni je tylko medium.
 
-Cel: mały rozmiar na przewodzie / w buforze, sortowalne klucze (DB), pełne grafy obiektów (`shared_ptr`), RPC.
+Cel: mały rozmiar na przewodzie / w buforze, sortowalne klucze (DB), pełne grafy obiektów (`shared_ptr`), legacy transfer / RPC.
 
-Status: **zaimplementowany**.
+Status: **zaimplementowany** (opt-in).
 
 Powiązane: [README.md](README.md), [flat-format.md](flat-format.md).
 
@@ -171,9 +174,10 @@ Kolejność `register_serialize_typed_function<T>()` / deserialize **musi być i
 
 ## Kiedy używać
 
-- RPC, logi, transfer sekwencyjny
-- Klucze / rekordy sortowane bajtowo (float, i8)
+- Legacy RPC / transfer sekwencyjny (opt-in; domyślny wire → [flat-format.md](flat-format.md))
+- Logi, mały rozmiar na przewodzie
+- Klucze / rekordy sortowane bajtowo (float, i8) — albo rozważ [key-format.md](key-format.md)
 - Grafy z cyklami (`shared_ptr`)
 - Gdy nie potrzeba odczytu w miejscu / random access do pól
 
-Gdy potrzebny zero-copy i seek po polach → [flat-format.md](flat-format.md).
+Domyślny RPC procesów i hot-path → [flat-format.md](flat-format.md).

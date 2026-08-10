@@ -1,8 +1,10 @@
 # Format flat (indexed / in-place)
 
+**Domyślny** wire procesów / RPC (`flat_socket_rpc_*`, `FlatSocketMessageChannel`). Compressed pozostaje [legacy opt-in](compressed-format.md).
+
 Format zoptymalizowany pod **szybki odczyt** (w tym odczyt w miejscu i dostęp swobodny do pól) oraz **wydajny jednoprzebiegowy zapis**. Współdzieli kontrakt `Writer` / `Reader` oraz `serialize` / `deserialize` z formatem skompresowanym; inny jest układ bajtów i znaczenie `begin_frame` / `end_frame` / `save_offset`.
 
-Status: **zaimplementowany** (`flat_stream_*`, `flat_circular_buffer_writer`, `flat_buffer_reader`, `flat_view`, `flat_string`/`flat_bytes`). Checklist: [flat-todo.md](flat-todo.md).
+Status: **zaimplementowany** (`flat_stream_*`, `flat_circular_buffer_writer`, `flat_buffer_reader`, `flat_view`, `flat_string`/`flat_bytes`). Checklist: [flat-todo.md](flat-todo.md). Przegląd formatów: [README.md](README.md).
 
 Powiązane: [README.md](README.md), [compressed-format.md](compressed-format.md).
 

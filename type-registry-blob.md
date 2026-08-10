@@ -23,8 +23,8 @@ Serialized `type_registry` / `TypeRegistry` as returned by WASM `rpc_description
 
 | Value | Name | Typical use |
 |-------|------|-------------|
-| `0` | `compressed` | RPC / stream ([compressed-format.md](compressed-format.md)) |
-| `1` | `flat` | hot-path / flat message channel ([flat-format.md](flat-format.md)) |
+| `0` | `compressed` | legacy / opt-in socket dataFormat ([compressed-format.md](compressed-format.md)) |
+| `1` | `flat` | default RPC / flat message channel ([flat-format.md](flat-format.md)) |
 | `2` | `key` | DB index keys ([key-format.md](key-format.md)) |
 
 Examples: compressed `0x80`, flat `0x81`, key `0x82`.
