@@ -48,6 +48,7 @@ namespace waos::native {
       // Socket lifecycle
       void open_socket(std::uint32_t index, std::size_t buf_size);
       void close_socket(std::uint32_t index);
+      bool is_socket_open(std::uint32_t index) const;
 
       // Inbound: kernel pump calls these
       void handle_data(std::uint32_t socket);

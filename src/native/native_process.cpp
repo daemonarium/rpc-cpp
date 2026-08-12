@@ -68,6 +68,13 @@ namespace waos::native {
     s.open = false;
   }
 
+  bool native_process::is_socket_open(std::uint32_t index) const {
+    if(index >= sockets_.size()) {
+      return false;
+    }
+    return sockets_[index]->open;
+  }
+
   void native_process::handle_data(std::uint32_t socket) {
     if(!is_alive_) {
       return;
