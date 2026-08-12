@@ -309,6 +309,17 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(native_process_ut
+    src/test/native_process_ut.cpp
+    src/native/native_process.cpp
+    ${IO_FILES}
+  )
+  target_include_directories(native_process_ut PRIVATE src)
+  target_link_libraries(native_process_ut PRIVATE Boost::ut)
+  set_target_properties(native_process_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   # --- CTest registration ---
 
   enable_testing()
@@ -338,4 +349,5 @@ if(NOT WASM)
   add_test(NAME flat_rpc_loopback_ut COMMAND flat_rpc_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME flat_socket_rpc_ut COMMAND flat_socket_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME flat_zero_copy_rpc_ut COMMAND flat_zero_copy_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME native_process_ut COMMAND native_process_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
 endif()
