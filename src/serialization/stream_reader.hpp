@@ -33,6 +33,9 @@ namespace serialization {
         debug("exit_frame");
         // ignore
       }
+      void save_offset() {
+        // no-op for compressed stream format
+      }
       void enter_indexed_frame(size_t id) { throw std::runtime_error("Not indexed"); }
 
       void read_u64(std::uint64_t& value) {
@@ -129,6 +132,19 @@ namespace serialization {
         debug("read_length");
         value = read_uvar_int_32();
         debug("  read_length result %zd", value);
+      }
+
+      template <class Map, class KeyCb, class ValCb>
+      void read_map(Map& map, KeyCb&& key_cb, ValCb&& val_cb) {
+        std::size_t length = 0;
+        read_length(length);
+        for(std::size_t i = 0; i < length; ++i) {
+          typename Map::key_type key{};
+          typename Map::mapped_type item{};
+          key_cb(*this, key);
+          val_cb(*this, item);
+          map.insert(std::make_pair(std::move(key), std::move(item)));
+        }
       }
 
       template <typename T>
@@ -265,15 +281,26 @@ namespace serialization {
         debug("read_rest %zd", read_later_.size());
         while(!read_later_.empty()) {
           debug("  read_rest - reading later %zd", read_later_.size());
-          auto pair = read_later_.front();
+          // Move callback out; do not keep references across it — read_typed may
+          // push_back new later-entries and reallocate. Self-refs append assigns
+          // onto front().first during the callback; collect them afterwards.
+          ReadLater callbacks = std::move(read_later_.front().second);
           std::shared_ptr<void> result;
-          pair.second(result);
-          for(auto& assign : pair.first) {
+          callbacks(result);
+          auto assigns = std::move(read_later_.front().first);
+          for(auto& assign : assigns) {
             assign(result);
           }
-          read_pointers_.push_back(result);
+          read_pointers_.push_back(std::move(result));
           read_later_.erase(read_later_.begin());
         }
+      }
+
+      // Compressed graphs are polymorphic: deferred callback reads the type
+      // index via read_typed and dispatches to the registered function.
+      template <typename T>
+      ReadLater make_shared_read_later() {
+        return [this](std::shared_ptr<void>& data) { read_typed(data); };
       }
 
     public:

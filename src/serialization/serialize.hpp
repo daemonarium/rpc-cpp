@@ -13,6 +13,7 @@ namespace serialization {
   requires(Binary<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_binary(std::move(value));
+    writer.save_offset();
   }
 
   template <class T, Writer W>
@@ -30,13 +31,9 @@ namespace serialization {
   template <class T, Writer W>
   requires(Map<T> && !Binary<T> && Writer<W>)  
   void serialize(W& writer, const T& value) {
-    writer.begin_frame();
-    writer.write_length(value.size());    
-    for (const auto& element : value) {
-      serialize(writer, element.first);
-      serialize(writer, element.second);
-    }
-    writer.end_frame();
+    writer.write_map(value,
+      [&](auto& w, const typename T::key_type& k) { serialize(w, k); },
+      [&](auto& w, const typename T::mapped_type& v) { serialize(w, v); });
     writer.save_offset();
   }
 
@@ -65,25 +62,25 @@ namespace serialization {
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 1) && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 1) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i8(static_cast<std::int8_t>(value));
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 2) && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 2) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i16(static_cast<std::int16_t>(value));
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 4) && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 4) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i32(static_cast<std::int32_t>(value));
   }
 
   template <class T, Writer W>
-  requires(SignedInteger<T> && !Boolean<T> && (sizeof(T) == 8) && Writer<W>)
+  requires(SignedInteger<T> && !Boolean<T> && !FloatingPoint<T> && (sizeof(T) == 8) && Writer<W>)
   void serialize(W& writer, const T& value) {
     writer.write_i64(value);
   }
@@ -128,16 +125,18 @@ namespace serialization {
   template <class T, Writer W>
   requires(SharedPointer<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
-    writer.write_pointer(value, [value, &writer]{
-      writer.write_typed(value);      
-    });
+    writer.write_pointer(value, writer.template make_shared_write_later<typename T::element_type>(value));
   }
 
   template <class T, Writer W>
   requires(SimpleException<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
+    // Match TypeKind.Exception / type_description (what: string) as a flat UDT frame.
+    writer.begin_frame();
     std::string msg(value.what());
     serialize(writer, msg);
+    writer.end_frame();
+    writer.save_offset();
   }
 
   template <class T, Writer W, class B>

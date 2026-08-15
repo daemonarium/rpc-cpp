@@ -78,6 +78,14 @@ if(WASM)
     )
     
   endforeach()
+
+  # Compressed USER face (peer modules use compressed_socket_rpc_* on sock 0).
+  if(TARGET dbg_cpeer)
+    target_compile_definitions(dbg_cpeer PRIVATE WAOS_MODULE_RPC_COMPRESSED)
+  endif()
+  if(TARGET dbg_cclient)
+    target_compile_definitions(dbg_cclient PRIVATE WAOS_MODULE_RPC_COMPRESSED)
+  endif()
 endif()
 
 # Native unit tests (Boost.UT)
@@ -110,10 +118,121 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  # --- Serialization tests (flat) ---
+
+  add_executable(serialization_flat_ut src/test/serialization_flat_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_flat_ut PRIVATE src)
+  target_link_libraries(serialization_flat_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_flat_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(serialization_flat_circular_ut src/test/serialization_flat_circular_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_flat_circular_ut PRIVATE src)
+  target_link_libraries(serialization_flat_circular_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_flat_circular_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(serialization_flat_circular_writer_ut src/test/serialization_flat_circular_writer_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_flat_circular_writer_ut PRIVATE src)
+  target_link_libraries(serialization_flat_circular_writer_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_flat_circular_writer_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(serialization_flat_generated_ut src/test/serialization_flat_generated_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_flat_generated_ut PRIVATE src)
+  target_link_libraries(serialization_flat_generated_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_flat_generated_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(serialization_flat_exception_ut src/test/serialization_flat_exception_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_flat_exception_ut PRIVATE src)
+  target_link_libraries(serialization_flat_exception_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_flat_exception_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_writer_reader_base_ut src/test/flat_writer_reader_base_ut.cpp ${IO_FILES})
+  target_include_directories(flat_writer_reader_base_ut PRIVATE src)
+  target_link_libraries(flat_writer_reader_base_ut PRIVATE Boost::ut)
+  set_target_properties(flat_writer_reader_base_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(serialization_compressed_generated_ut src/test/serialization_compressed_generated_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_compressed_generated_ut PRIVATE src)
+  target_link_libraries(serialization_compressed_generated_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_compressed_generated_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(compressed_codec_ut src/test/compressed_codec_ut.cpp ${IO_FILES})
+  target_include_directories(compressed_codec_ut PRIVATE src)
+  target_link_libraries(compressed_codec_ut PRIVATE Boost::ut)
+  set_target_properties(compressed_codec_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_materialized_codec_ut src/test/flat_materialized_codec_ut.cpp ${IO_FILES})
+  target_include_directories(flat_materialized_codec_ut PRIVATE src)
+  target_link_libraries(flat_materialized_codec_ut PRIVATE Boost::ut)
+  set_target_properties(flat_materialized_codec_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_message_channel_ut src/test/flat_message_channel_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  target_include_directories(flat_message_channel_ut PRIVATE src)
+  target_link_libraries(flat_message_channel_ut PRIVATE Boost::ut socket_test_stub)
+  set_target_properties(flat_message_channel_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_zero_copy_codec_ut src/test/flat_zero_copy_codec_ut.cpp ${IO_FILES})
+  target_include_directories(flat_zero_copy_codec_ut PRIVATE src)
+  target_link_libraries(flat_zero_copy_codec_ut PRIVATE Boost::ut)
+  set_target_properties(flat_zero_copy_codec_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_zero_copy_message_channel_ut src/test/flat_zero_copy_message_channel_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  target_include_directories(flat_zero_copy_message_channel_ut PRIVATE src)
+  target_link_libraries(flat_zero_copy_message_channel_ut PRIVATE Boost::ut socket_test_stub)
+  set_target_properties(flat_zero_copy_message_channel_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  # --- Serialization tests (key format) ---
+
+  add_executable(serialization_key_ut src/test/serialization_key_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_key_ut PRIVATE src)
+  target_link_libraries(serialization_key_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_key_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(serialization_key_circular_ut src/test/serialization_key_circular_ut.cpp ${IO_FILES})
+  target_include_directories(serialization_key_circular_ut PRIVATE src)
+  target_link_libraries(serialization_key_circular_ut PRIVATE Boost::ut)
+  set_target_properties(serialization_key_circular_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   # Generator for TSV reference data (value + binary) for TS tests
+  # Usage: generate_serialization_tsv [out.tsv]
+  #        generate_serialization_tsv --flat [out.tsv]
+  # Note: cpp-rpc/src/test/serialization_reference.tsv is stale leftover — use ts-rpc/tests/ copies.
   add_executable(generate_serialization_tsv src/test/generate_serialization_tsv.cpp ${IO_FILES})
   target_include_directories(generate_serialization_tsv PRIVATE src)
   set_target_properties(generate_serialization_tsv PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(generate_serialization_complex_tsv src/test/generate_serialization_complex_tsv.cpp ${IO_FILES})
+  target_include_directories(generate_serialization_complex_tsv PRIVATE src)
+  set_target_properties(generate_serialization_complex_tsv PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
@@ -132,6 +251,13 @@ if(NOT WASM)
   target_include_directories(serialization_types_ut PRIVATE src)
   target_link_libraries(serialization_types_ut PRIVATE Boost::ut)
   set_target_properties(serialization_types_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(type_registry_blob_ut src/test/type_registry_blob_ut.cpp ${IO_FILES})
+  target_include_directories(type_registry_blob_ut PRIVATE src)
+  target_link_libraries(type_registry_blob_ut PRIVATE Boost::ut)
+  set_target_properties(type_registry_blob_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
@@ -162,15 +288,78 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(flat_rpc_loopback_ut src/test/flat_rpc_loopback_ut.cpp ${IO_FILES})
+  target_include_directories(flat_rpc_loopback_ut PRIVATE src)
+  target_link_libraries(flat_rpc_loopback_ut PRIVATE Boost::ut)
+  set_target_properties(flat_rpc_loopback_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_socket_rpc_ut src/test/flat_socket_rpc_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  target_include_directories(flat_socket_rpc_ut PRIVATE src)
+  target_link_libraries(flat_socket_rpc_ut PRIVATE Boost::ut socket_test_stub)
+  set_target_properties(flat_socket_rpc_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_buffer_rpc_ut
+    src/test/flat_buffer_rpc_ut.cpp
+    src/native/native_process.cpp
+    ${IO_FILES}
+  )
+  target_include_directories(flat_buffer_rpc_ut PRIVATE src)
+  target_link_libraries(flat_buffer_rpc_ut PRIVATE Boost::ut)
+  set_target_properties(flat_buffer_rpc_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(flat_zero_copy_rpc_ut src/test/flat_zero_copy_rpc_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  target_include_directories(flat_zero_copy_rpc_ut PRIVATE src)
+  target_link_libraries(flat_zero_copy_rpc_ut PRIVATE Boost::ut socket_test_stub)
+  set_target_properties(flat_zero_copy_rpc_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(native_process_ut
+    src/test/native_process_ut.cpp
+    src/native/native_process.cpp
+    ${IO_FILES}
+  )
+  target_include_directories(native_process_ut PRIVATE src)
+  target_link_libraries(native_process_ut PRIVATE Boost::ut)
+  set_target_properties(native_process_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   # --- CTest registration ---
 
   enable_testing()
   add_test(NAME io_circular_buffer_ut COMMAND io_circular_buffer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME socket_loopback_ut COMMAND socket_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_stream_ut COMMAND serialization_stream_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_flat_ut COMMAND serialization_flat_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_flat_circular_ut COMMAND serialization_flat_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_flat_circular_writer_ut COMMAND serialization_flat_circular_writer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_flat_generated_ut COMMAND serialization_flat_generated_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_flat_exception_ut COMMAND serialization_flat_exception_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_writer_reader_base_ut COMMAND flat_writer_reader_base_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_compressed_generated_ut COMMAND serialization_compressed_generated_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME compressed_codec_ut COMMAND compressed_codec_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_materialized_codec_ut COMMAND flat_materialized_codec_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_message_channel_ut COMMAND flat_message_channel_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_zero_copy_codec_ut COMMAND flat_zero_copy_codec_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_zero_copy_message_channel_ut COMMAND flat_zero_copy_message_channel_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_key_ut COMMAND serialization_key_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME serialization_key_circular_ut COMMAND serialization_key_circular_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_cb_ut COMMAND serialization_cb_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_types_ut COMMAND serialization_types_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME type_registry_blob_ut COMMAND type_registry_blob_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME message_channel_ut COMMAND message_channel_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME rpc_loopback_ut COMMAND rpc_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME socket_rpc_ut COMMAND socket_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_rpc_loopback_ut COMMAND flat_rpc_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_socket_rpc_ut COMMAND flat_socket_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_buffer_rpc_ut COMMAND flat_buffer_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_zero_copy_rpc_ut COMMAND flat_zero_copy_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME native_process_ut COMMAND native_process_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
 endif()

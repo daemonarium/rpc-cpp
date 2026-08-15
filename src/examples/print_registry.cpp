@@ -1,8 +1,7 @@
 #include "serialization/type_registry.hpp"
-#include "serialization/stream_reader.hpp"
+#include "serialization/type_registry_blob.hpp"
 
 #include <iostream>
-#include <sstream>
 #include <fstream>
 #include <vector>
 
@@ -17,14 +16,14 @@ int main(int argc, char** argv) {
   file.seekg(0, std::ios::beg);
   std::vector<char> buffer(size);
   file.read(buffer.data(), size);
-  std::istringstream input_stream(std::string(buffer.data(), size), std::ios::binary);
   std::cout << "File size: " << size << std::endl;
-  serialization::stream_reader reader(input_stream);
-  reader.register_deserialize_typed_function<serialization::type_description>();
-  serialization::type_registry registry;
-  deserialize(reader, registry);
-  std::cout << "Read rest: " << input_stream.tellg() << std::endl;
-  reader.read_rest();
+
+  serialization::type_registry registry(false);
+  serialization::deserialize_type_registry_blob(
+    std::string_view(buffer.data(), buffer.size()),
+    registry
+  );
+  std::cout << "Data format: " << static_cast<unsigned>(registry.data_format()) << std::endl;
   std::cout << "Type registry:" << std::endl;
   for (const auto& type : registry.get_types()) {
     std::cout << *type << std::endl;

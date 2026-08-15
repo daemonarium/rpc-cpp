@@ -1,6 +1,7 @@
 #include "module.hpp"
 
-#include <serialization/stream_writer.hpp>
+#include <serialization/type_registry_blob.hpp>
+#include <serialization/type_description.hpp>
 #include <socket/socket.h>
 #include <memory>
 #include <utils/socket_handlers.hpp>
@@ -11,20 +12,16 @@ serialization::type_registry registry(true);
 void register_all();
 
 extern "C" size_t rpc_description(std::uint32_t socket, char** buffer) {
-  serialization::type_description::create(serialization::read_annotation(), registry);
-  register_all();
-  std::ostringstream output_stream;
-  serialization::stream_writer writer(output_stream);  
-
-  writer.register_serialize_typed_function<serialization::type_description>();
-  writer.register_serialize_typed_function<serialization::read_annotation>();
-
-  serialize(writer, registry);
-  writer.write_rest();
-
-  *buffer = (char*)malloc(output_stream.str().size());
-  memcpy(*buffer, output_stream.str().data(), output_stream.str().size());
-  return output_stream.str().size();
+  // Types were registered in start() via register_all(). Do not call register_all()
+  // again — re-registration throws under wasm exceptions and empties the export.
+  // Catch-all: a trap mid-serialize can corrupt heap (including the live RPC
+  // channel). Prefer returning 0 over propagating into the host.
+  try {
+    serialization::type_description::create(serialization::read_annotation(), registry);
+    return serialization::serialize_type_registry_blob_malloc(registry, buffer);
+  } catch(...) {
+    return 0;
+  }
 }
 
 extern "C" void waos_socket_data(std::uint32_t socket) {
@@ -46,7 +43,11 @@ extern "C" void start() {
     .flags = 0,
   };
   socket_open(0, &socket_options);
-  
+
+#if defined(WAOS_MODULE_RPC_COMPRESSED)
+  registry.set_data_format(serialization::serialization_format::compressed);
+#endif
+
   // Initialize socket_rpc_server after socket is opened
   rpc_server_ptr = std::make_unique<rpc_server_type>(0);
   

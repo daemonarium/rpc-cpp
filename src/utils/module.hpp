@@ -5,7 +5,12 @@
 #include "serialization/type_description.hpp"
 #include <memory>
 
-using rpc_server_type = serialization::socket_rpc_server;
+#if defined(WAOS_MODULE_RPC_COMPRESSED)
+using rpc_server_type = serialization::compressed_socket_rpc_server;
+#else
+using rpc_server_type = serialization::flat_socket_rpc_server;
+#endif
+
 extern std::unique_ptr<rpc_server_type> rpc_server_ptr;
 extern serialization::type_registry registry;
 

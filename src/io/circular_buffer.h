@@ -172,6 +172,40 @@ size_t circular_buffer_commit_write(struct circular_buffer *buffer, size_t bytes
 size_t circular_buffer_peek(struct circular_buffer *buffer, size_t offset, void *destination, size_t bytes);
 
 /**
+ * One contiguous physical slice of a logical readable range.
+ * Pointers are into buffer storage and remain valid only until skip_read/grow/write
+ * that changes layout (single-thread handler lifetime).
+ */
+struct circular_buffer_segment {
+  const char *ptr;
+  size_t len;
+};
+
+/**
+ * Describes logical range [offset, offset+len) in peek space (0 = current read_offset).
+ * Writes 1 or 2 segments into out. Returns number of segments, or 0 on OOB/error.
+ * When return==1, out[1].len is 0.
+ */
+int circular_buffer_get_segments(
+    struct circular_buffer *buffer,
+    size_t offset,
+    size_t len,
+    struct circular_buffer_segment out[2]);
+
+/**
+ * Returns non-zero if [offset, offset+len) lies in one contiguous physical slice.
+ */
+int circular_buffer_region_contiguous(
+    struct circular_buffer *buffer, size_t offset, size_t len);
+
+/**
+ * If the range is contiguous, sets *ptr to its start and returns len.
+ * Otherwise sets *ptr to NULL and returns 0.
+ */
+size_t circular_buffer_try_contiguous_ptr(
+    struct circular_buffer *buffer, size_t offset, size_t len, const char **ptr);
+
+/**
  * Writes bytes to the buffer without moving the write offset.
  *
  * @param buffer The buffer to write to.

@@ -4,6 +4,7 @@
 #include <typeindex>
 #include "type_description.hpp"
 #include "rpc.hpp"
+#include "serialization_format.hpp"
 
 namespace serialization {
 
@@ -85,6 +86,14 @@ namespace serialization {
         return types_;
       }
 
+      serialization_format data_format() const {
+        return data_format_;
+      }
+
+      void set_data_format(serialization_format format) {
+        data_format_ = format;
+      }
+
       template <typename W>
       requires(Writer<W>)
       void serialize(W writer) {
@@ -114,6 +123,9 @@ namespace serialization {
       
       [[=serialization::policy::ignore]]
       std::unordered_map<std::string, std::shared_ptr<type_description>> types_by_name_;
+
+      [[=serialization::policy::ignore]]
+      serialization_format data_format_ = serialization_format::flat;
   };
 
 }

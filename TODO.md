@@ -1,5 +1,7 @@
 # TODO: Refactoring RPC na message-based communication
 
+> **Archive / historical.** Message-channel RPC refactor poniżej. Cutover flat-as-default wire: [README.md](README.md), [../TESTING.md](../TESTING.md). Ten plik nie śledzi cutoveru formatów.
+
 ## Zrobione
 
 - [x] `socket_message_channel.hpp` - bidirectional message layer z payload support
