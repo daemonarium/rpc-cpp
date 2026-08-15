@@ -302,6 +302,17 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(flat_buffer_rpc_ut
+    src/test/flat_buffer_rpc_ut.cpp
+    src/native/native_process.cpp
+    ${IO_FILES}
+  )
+  target_include_directories(flat_buffer_rpc_ut PRIVATE src)
+  target_link_libraries(flat_buffer_rpc_ut PRIVATE Boost::ut)
+  set_target_properties(flat_buffer_rpc_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   add_executable(flat_zero_copy_rpc_ut src/test/flat_zero_copy_rpc_ut.cpp ${IO_FILES} ${SOCKET_FILES})
   target_include_directories(flat_zero_copy_rpc_ut PRIVATE src)
   target_link_libraries(flat_zero_copy_rpc_ut PRIVATE Boost::ut socket_test_stub)
@@ -348,6 +359,7 @@ if(NOT WASM)
   add_test(NAME socket_rpc_ut COMMAND socket_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME flat_rpc_loopback_ut COMMAND flat_rpc_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME flat_socket_rpc_ut COMMAND flat_socket_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME flat_buffer_rpc_ut COMMAND flat_buffer_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME flat_zero_copy_rpc_ut COMMAND flat_zero_copy_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME native_process_ut COMMAND native_process_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
 endif()

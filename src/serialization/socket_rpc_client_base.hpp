@@ -2,6 +2,7 @@
 
 #include "socket_message_channel.hpp"
 #include "socket_message_framing.hpp"
+#include "socket_transport.hpp"
 #include "serialize.hpp"
 #include "deserialize.hpp"
 #include "promise.hpp"
@@ -13,12 +14,13 @@
 #include <tuple>
 #include <exception>
 #include <string>
+#include <type_traits>
 
 namespace serialization {
 
   // Format-agnostic CRTP base for socket RPC clients. Owns the control /
   // registry / send machinery that is identical across all codecs:
-  //   - the socket_message_framing<Codec> channel,
+  //   - the socket_message_framing<Codec, Transport> channel,
   //   - registration of control messages (rpc_response/error) via
   //     register_control_message_type (always materialized, regardless of
   //     the codec's user-message handler_signature),
@@ -26,18 +28,19 @@ namespace serialization {
   //     rpc_call_mixin,
   //   - send_request_impl / send_method_request_impl.
   //
-  // The thin derived socket_rpc_client<Codec> only adds the public
+  // The thin derived socket_rpc_client<Codec, Transport> only adds the public
   // on_message<T> overloads, whose signature is adapted to the codec via
   // Codec::handler_signature<T>. Control messages always go through the
   // materialized on_control_message path provided here.
-  template <typename Codec>
-  class socket_rpc_client_base : public rpc_call_mixin<socket_rpc_client_base<Codec>> {
+  template <typename Codec, typename Transport = socket_c_transport>
+  class socket_rpc_client_base : public rpc_call_mixin<socket_rpc_client_base<Codec, Transport>> {
     public:
       using reader_type = typename Codec::reader_type;
       using writer_type = typename Codec::writer_type;
+      using transport_type = Transport;
 
-      explicit socket_rpc_client_base(uint32_t socket_id)
-        : channel_(socket_id) {
+      explicit socket_rpc_client_base(Transport transport)
+        : channel_(std::move(transport)) {
 
         // rpc_response / rpc_error are control messages: always materialized,
         // independent of the codec's user-message handler_signature.
@@ -61,6 +64,12 @@ namespace serialization {
           this->response_handlers_.erase(it);
         });
       }
+
+      // Backward-compatible ctor for socket_c_transport (socket_id).
+      explicit socket_rpc_client_base(uint32_t socket_id)
+        requires std::is_same_v<Transport, socket_c_transport>
+        : socket_rpc_client_base(socket_c_transport(socket_id)) {}
+
       ~socket_rpc_client_base() {}
 
       void register_basic_types() {
@@ -105,9 +114,9 @@ namespace serialization {
       }
 
     private:
-      friend class rpc_call_mixin<socket_rpc_client_base<Codec>>;
+      friend class rpc_call_mixin<socket_rpc_client_base<Codec, Transport>>;
 
-      socket_message_framing<Codec> channel_;
+      socket_message_framing<Codec, Transport> channel_;
   };
 
 } // namespace serialization

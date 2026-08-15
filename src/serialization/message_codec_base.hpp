@@ -100,6 +100,18 @@ namespace serialization {
         dispatch_table_.push_back(derived().template make_dispatch_handler<T>());
       }
 
+      // Send-only alias: SendT serializes with WireT's type index. No dispatch
+      // entry. Use when SendT's field layout is wire-identical to WireT
+      // (e.g. string_view vs vector<uint8_t> both emit u32 length + bytes).
+      template <typename WireT, typename SendT>
+      void register_message_send_alias() {
+        auto it = message_type_indexes_.find(std::type_index(typeid(WireT)));
+        if(it == message_type_indexes_.end()) {
+          throw std::runtime_error("register_message_send_alias: WireT is not registered");
+        }
+        message_type_indexes_[std::type_index(typeid(SendT))] = it->second;
+      }
+
       // --- Control-message path (always materialized) ---------------------
       // Control messages (rpc_request/rpc_response/rpc_error) must always be
       // materialized regardless of codec, because RPC dispatch reads their
