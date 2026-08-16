@@ -22,7 +22,13 @@ wasi_errno_t __wasi_fd_write(
   wasi_size_t iovs_len,
   wasi_size_t* nwritten
 ) {
-  if (nwritten) *nwritten = 0;
+  wasi_size_t total = 0;
+  if (iovs) {
+    for (wasi_size_t i = 0; i < iovs_len; ++i) {
+      total += iovs[i].buf_len;
+    }
+  }
+  if (nwritten) *nwritten = total;
   return 0;  // 0 = __WASI_ESUCCESS
 }
 
