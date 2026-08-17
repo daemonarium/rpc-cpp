@@ -79,6 +79,14 @@ if(WASM)
     
   endforeach()
 
+  if(TARGET db_bench_client)
+    target_link_options(db_bench_client PRIVATE
+      -sTOTAL_STACK=65536
+      -sINITIAL_MEMORY=2MB
+      -sEXPORTED_FUNCTIONS=_rpc_description,_start,_malloc,_waos_socket_data,_waos_socket_output_drain,_waos_set_process_id
+    )
+  endif()
+
   # Compressed USER face (peer modules use compressed_socket_rpc_* on sock 0).
   if(TARGET dbg_cpeer)
     target_compile_definitions(dbg_cpeer PRIVATE WAOS_MODULE_RPC_COMPRESSED)
