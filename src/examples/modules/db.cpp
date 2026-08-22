@@ -25,7 +25,7 @@ void register_all() {
   waos::stream_handle streamHandle;
   register_rpc(streamHandle);
 
-  waos::stream_opened socketOpened;
+  waos::socket_opened socketOpened;
   register_rpc(socketOpened);
   waos::db_visible_event visibleEv;
   register_rpc(visibleEv);
@@ -41,6 +41,8 @@ void register_all() {
   register_rpc(scanError);
   waos::stream_reset scanReset;
   register_rpc(scanReset);
+  waos::stream_opened streamOpened;
+  register_rpc(streamOpened);
 
   waos::db_error dbError;
   register_rpc(dbError);

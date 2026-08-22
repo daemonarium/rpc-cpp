@@ -13,12 +13,20 @@ namespace waos {
   // ---------------------------------------------------------------------------
   // Observation / stream contract
   //
-  // A client starts a stream (DB start_scan today; observe and other streams
-  // later) with a stream_handle. The server emits items on the private channel
-  // until the stream ends:
+  // A client starts a stream (observe and other streams; DB start_scan is a
+  // separate fast path that does not emit per-scan stream_opened) with a
+  // stream_handle. The producer emits items on the private channel until
+  // the stream ends:
   //
-  //   start -> stream_opened -> stream_item | stream_key
+  //   start -> stream_opened{id} -> stream_item | stream_key
   //         -> stream_done | stream_error | stream_reset
+  //
+  // Items must not be queued on that stream before stream_opened{id}.
+  // stream_cancel is valid after opened; the producer also accepts cancel
+  // before attach via a pending set.
+  //
+  // socket_opened is not part of this lifecycle. It is the ack that a
+  // private channel is bound (open_socket). It has no stream_id.
   //
   // since_timestamp (on stream_handle) is the observation watermark:
   //   * 0  = full stream: current state in range (every key once).
@@ -61,7 +69,9 @@ namespace waos {
     std::uint64_t since_timestamp = 0;
   };
 
-  struct [[=serialization::message()]] stream_opened {
+  // Ack that the private channel is bound (open_socket). Not per-stream.
+  // Occupies the historical empty stream_opened type-index slot.
+  struct [[=serialization::message()]] socket_opened {
   };
 
   struct [[=serialization::message()]] stream_item {
@@ -93,6 +103,12 @@ namespace waos {
   // Consumer -> producer: tear down the stream with this id. Fire-and-forget.
   // Producer no-ops if the id is unknown or already ended.
   struct [[=serialization::message()]] stream_cancel {
+    std::uint64_t stream_id = 0;
+  };
+
+  // Producer has this id in its map; client may cancel / use the stream.
+  // Registered last so existing type indexes do not shift.
+  struct [[=serialization::message()]] stream_opened {
     std::uint64_t stream_id = 0;
   };
 

@@ -149,6 +149,13 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(stream_publisher_ut src/test/stream_publisher_ut.cpp)
+  target_include_directories(stream_publisher_ut PRIVATE src)
+  target_link_libraries(stream_publisher_ut PRIVATE Boost::ut)
+  set_target_properties(stream_publisher_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   add_executable(remote_observable_ut src/test/remote_observable_ut.cpp ${IO_FILES} ${SOCKET_FILES})
   target_include_directories(remote_observable_ut PRIVATE src)
   target_link_libraries(remote_observable_ut PRIVATE Boost::ut socket_test_stub)
@@ -372,6 +379,7 @@ if(NOT WASM)
   enable_testing()
   add_test(NAME observable_ut COMMAND observable_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME stream_multiplexer_ut COMMAND stream_multiplexer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME stream_publisher_ut COMMAND stream_publisher_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME remote_observable_ut COMMAND remote_observable_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME remote_registry_ut COMMAND remote_registry_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME io_circular_buffer_ut COMMAND io_circular_buffer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)

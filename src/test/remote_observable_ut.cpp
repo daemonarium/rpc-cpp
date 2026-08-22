@@ -128,13 +128,14 @@ namespace {
 
   template <typename Side>
   void register_stream_types(Side& s) {
-    s.template register_message_type<waos::stream_opened>();
+    s.template register_message_type<waos::socket_opened>();
     s.template register_message_type<waos::stream_item>();
     s.template register_message_type<waos::stream_key>();
     s.template register_message_type<waos::stream_done>();
     s.template register_message_type<waos::stream_error>();
     s.template register_message_type<waos::stream_reset>();
     s.template register_message_type<waos::stream_cancel>();
+    s.template register_message_type<waos::stream_opened>();
   }
 
   void rpc_roundtrip(socket_loopback_pair& sockets,

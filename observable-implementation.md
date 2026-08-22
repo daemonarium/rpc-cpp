@@ -22,11 +22,32 @@ Requirements live in `observable-requirements.md`.
 | Error after last unsubscribe | State → `idle`; exception kept in `lastError` | Drop the exception | Diagnostics after `error → idle`. Re-subscribe starts fresh. |
 | Muxer roles | `StreamMultiplexer<Starter, Channel>`: Starter=`call`, Channel=`on_message`/`send_message` | Hardcoded `kDbStartScan`/`kDbCancelScan`; kernel-shield client | Platform-agnostic. Same rpc_client = one-connection; distinct instances = split. |
 | Cancel | `stream_cancel{stream_id}` message | `cancel_scan` RPC (fn 6) | Producer stream layer handles by id; fire-and-forget; no-op if unknown. |
+| Socket ack vs stream handshake | Empty ack renamed `socket_opened`; per-stream `stream_opened{id}` appended last | Keep empty `stream_opened` as both bind ack and stream handshake | Type-index stability. Items must not precede `stream_opened{id}`. `start_scan` still does not emit per-scan opened. |
+| Producer backpressure | `try_queue_message`; pending `onChange` until drain | Blocking send; drop on full | Observable already serializes the consumer and pauses when its ring fills. |
+| Cancel before attach | `pendingCancels`; `attach` is a no-op | Ignore early cancel | Handshake race: client may cancel before the producer map insert. |
 | Registry key | `(function_id, serialized args)` via `flat_bytes_writer` | Explicit string key; reflection of dataset identity | Same shape as `rpc_call_mixin::call`. |
 | Registry ownership | Registry owns `RemoteObservable` across idle (no eviction in v1) | Destroy on last unsubscribe; weak_ptr | Resubscribe reuses `maxTs` / view → delta, not a full scan. |
 | DB start | Unchanged `start_scan` / `ensure_channel_` reuse by `(pid, socket)` | Per-stream sockets; muxer-owned bind | One-connection = dedicated `open_socket` socket. |
 
 ## Architecture
+
+```
+  Observable  ──► StreamRelayConsumer ──► StreamPublisher ──► wire
+          │         try_queue stream_item / done / reset / error
+          │         pending onChange until onWritable
+          ▼
+  StreamPublisher.attach(id, obs, since)
+          │  pendingCancels → no-op
+          │  try_queue stream_opened{id} then subscribe
+          ▼
+  wire (stream_opened / stream_item / stream_done / stream_reset /
+        stream_error / stream_cancel)
+          │
+          ▼
+  StreamMultiplexer  ──► RemoteObservable ──► Observable ──► Consumer
+```
+
+Client stack (wire → Observable):
 
 ```
   RemoteRegistry  (key = function_id + serialized args)
@@ -38,18 +59,14 @@ Requirements live in `observable-requirements.md`.
           ▼
   StreamMultiplexer<Starter, Channel>
           │  Starter.call<void>(fn, handle, args...)
-          │  Channel.on_message<stream_*>
+          │  Channel.on_message<stream_*>  (not socket_opened)
           │  Channel.send_message<stream_cancel>
           ▼
-  wire (stream_item / stream_done / stream_reset / stream_error / stream_cancel)
+  wire (stream_opened / stream_item / stream_done / stream_reset /
+        stream_error / stream_cancel)
           │
           ▼
   Observable  ──► ConsumerOutput ──► Consumer
-          │                         │
-          │                         │ onChange / onReady / onReset
-          │                         │ onError / onClosed
-          ▼                         ▼
-     (operators, later)        relay consumer ──► wire ──► next process
 ```
 
 Signal symmetry: wire messages, Observable source API, and Consumer
@@ -81,10 +98,22 @@ Public source API: `onItem`, `onDone`, `onReset`, `onError`.
 uses).
 
 **`StreamMultiplexer<Starter, Channel>`** — demuxes `stream_*` by
-`stream_id`. `createStream(function_id, since, receiver, args...)`
+`stream_id` (`stream_opened` included; `socket_opened` ignored).
+`createStream(function_id, since, receiver, args...)`
 builds `stream_handle` from muxer-owned return pid/socket and
-calls `starter.call<void>`. `cancelStream` sends `stream_cancel`
-on the channel.
+calls `starter.call<void>`. `cancelStream` always sends
+`stream_cancel`; if the id is not yet opened, opened later
+triggers a second cancel.
+
+**`StreamRelayConsumer<Channel>`** — one `stream_id`. `try_queue`
+`stream_item` / control messages. Full socket → pending
+`onChange`. Control never overtakes a blocked item; `onReset`
+drops it.
+
+**`StreamPublisher<Channel>`** — one Channel / socket.
+`attach` / `detach` / `onCancel` / `onWritable`. Opened-before-
+subscribe; `pendingCancels` for cancel-before-attach. Not used
+by `start_scan`.
 
 **`RemoteObservable<Starter, Channel, Args...>`** — wire →
 `Observable<BinaryEntry>` bridge. Stores `function_id` +
@@ -152,8 +181,15 @@ ring_buffer (22–23), async backpressure (24–27), retransmit (28–29),
 readyPromise (30), error→idle + `lastError` (31), recovery via
 retransmit (32).
 
-`stream_multiplexer_ut`: sequential ids, demux, cancel drops
-unknown ids, `stream_cancel` (not RPC), two-role vs one-client.
+`stream_multiplexer_ut`: sequential ids, demux, `stream_opened`
+by id, cancel drops unknown ids, cancel-before-opened resend,
+`stream_cancel` (not RPC), two-role vs one-client.
+
+`stream_publisher_ut`: relay mapping, opened-before-items, since
+replay, try_queue backpressure / pause-resume, done waits for
+blocked item, reset-while-blocked, two ids one Observable,
+cancel after/before attach, duplicate attach, detach/cancel
+no-op, publisher dtor.
 
 `remote_observable_ut`: subscribe/`onStart`, wire signals, last
 unsubscribe cancel, resubscribe `since = maxTs`, loopback
@@ -170,3 +206,5 @@ delta resume.
 `FilteredObservable`, `MappedObservable`, `DeserializedObservable`.
 Registry GC (TTL / weak-ref eviction). One-connection DB refactor
 if a dedicated `open_socket` socket is ever insufficient.
+Export registry (server catalog of attachable Observables).
+DB scan rewrite onto `StreamPublisher` (`start_scan` stays).

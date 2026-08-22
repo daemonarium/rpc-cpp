@@ -85,7 +85,12 @@ namespace {
     std::vector<waos::stream_reset> resets;
     std::vector<waos::stream_error> errors;
 
-    void onStreamOpened(waos::stream_opened&) override { ++opened; }
+    std::vector<std::uint64_t> openedIds;
+
+    void onStreamOpened(waos::stream_opened& m) override {
+      ++opened;
+      openedIds.push_back(m.stream_id);
+    }
     void onStreamItem(waos::stream_item& m) override { items.push_back(m); }
     void onStreamDone(waos::stream_done& m) override { dones.push_back(m); }
     void onStreamReset(waos::stream_reset& m) override { resets.push_back(m); }
@@ -126,7 +131,7 @@ int main() {
     client.inject(waos::stream_done{id1});
     client.inject(waos::stream_reset{id2});
     client.inject(waos::stream_error{id2, "boom"});
-    client.inject(waos::stream_opened{});
+    client.inject(waos::stream_opened{id1});
 
     expect(eq(r1.items.size(), std::size_t{1}));
     expect(r1.items[0].key == bin("k"));
@@ -138,9 +143,45 @@ int main() {
     expect(eq(r2.resets.size(), std::size_t{1}));
     expect(eq(r2.errors.size(), std::size_t{1}));
     expect(r2.errors[0].message == std::string("boom"));
-    // stream_opened has no stream_id; mux broadcasts to every receiver.
     expect(eq(r1.opened, 1));
+    expect(eq(r1.openedIds[0], id1));
+    expect(eq(r2.opened, 0));
+  };
+
+  "stream_opened goes only to the matching id"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RecordingReceiver r1;
+    RecordingReceiver r2;
+    auto id1 = mux.createStream(kDbStartScan, 0, &r1, waos::db_scan_query{});
+    auto id2 = mux.createStream(kDbStartScan, 0, &r2, waos::db_scan_query{});
+    client.inject(waos::stream_opened{id2});
+    expect(eq(r1.opened, 0));
     expect(eq(r2.opened, 1));
+    expect(eq(r2.openedIds[0], id2));
+    (void)id1;
+  };
+
+  "cancel before opened sends stream_cancel again when opened arrives"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RecordingReceiver r1;
+    auto id = mux.createStream(kDbStartScan, 0, &r1, waos::db_scan_query{});
+    mux.cancelStream(id);
+    expect(eq(client.cancels.size(), std::size_t{1}));
+    client.inject(waos::stream_opened{id});
+    expect(eq(client.cancels.size(), std::size_t{2}));
+    expect(eq(client.cancels[1].stream_id, id));
+    expect(eq(r1.opened, 0));
+  };
+
+  "socket_opened is ignored"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RecordingReceiver r1;
+    mux.createStream(kDbStartScan, 0, &r1, waos::db_scan_query{});
+    client.inject(waos::socket_opened{});
+    expect(eq(r1.opened, 0));
   };
 
   "unknown id after cancel is silently dropped"_test = [] {

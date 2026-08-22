@@ -62,7 +62,7 @@ namespace {
     c.channel().template register_exception_type<waos::db_invalid_argument>();
     c.channel().template register_exception_type<waos::db_closed>();
     c.channel().template register_exception_type<waos::db_io_error>();
-    c.register_message_type<waos::stream_opened>();
+    c.register_message_type<waos::socket_opened>();
     c.register_message_type<waos::stream_item>();
     c.register_message_type<waos::stream_key>();
     c.register_message_type<waos::stream_done>();
@@ -70,6 +70,7 @@ namespace {
     c.register_message_type<waos::stream_reset>();
     c.register_message_type<waos::db_visible_event>();
     c.register_message_type<waos::db_durable_event>();
+    c.register_message_type<waos::stream_opened>();
   }
 
   void ensure_db_client() {
@@ -92,8 +93,8 @@ namespace {
     wire_client(*db_control);
     wire_client(*db_private);
 
-    db_private->on_message<waos::stream_opened>(
-        std::function<void(waos::stream_opened&)>([](waos::stream_opened&) {
+    db_private->on_message<waos::socket_opened>(
+        std::function<void(waos::socket_opened&)>([](waos::socket_opened&) {
           connected_ = true;
           if(opened_promise) {
             opened_promise->resolve();

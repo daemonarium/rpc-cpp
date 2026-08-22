@@ -576,9 +576,42 @@ sockets. One-connection is a dedicated socket the app opens with
 `open_socket`; `start_scan` / `ensure_channel_` already reuse by
 `(pid, socket)`, so several streams share that socket.
 
+`socket_opened` is the empty ack that the private channel is bound
+(`open_socket`). It is not per-stream; the muxer does not listen
+for it. Per-stream handshake is `stream_opened{stream_id}`: the
+producer has that id in its map and the client may cancel / use
+the stream. Items must not be queued on that stream before this
+message.
+
+**Producer path** (`StreamPublisher` / `StreamRelayConsumer`) is
+the other side of the bridge: `Observable → Relay → Publisher →
+wire`. A handler that already has an `Observable<BinaryEntry>`
+calls `attach(stream_id, obs, since)`. `attach` inserts the relay
+(so cancel hits), `try_queue`s `stream_opened{id}`, and only then
+subscribes (replay / live items follow opened on the wire). If
+the socket cannot accept opened, subscribe waits for
+`onWritable()`. This path is **not** used by `start_scan` (scan
+stays a low-level fast path).
+
+Cancel after opened: known id → `detach` (unsubscribe). Cancel
+before attach: id goes into `pendingCancels`; a later `attach` of
+that id is a no-op (never subscribe). Duplicate attach of a live
+id replaces the old relay.
+
+Backpressure: `Channel::try_queue_message`. A full socket makes
+`onChange` return a pending `promise<void>` until drain
+(`onWritable` retries the blocked item, then any stashed control).
+The Observable already serializes that consumer and `onPause`s
+when its ring fills. `stream_done` / `stream_error` never jump
+ahead of a blocked item; `onReset` drops the blocked item,
+resolves its promise (the per-output ring was already cleared),
+and queues `stream_reset`.
+
 The muxer owns the return channel (`pid` / `socket` on
 `stream_handle`). `RemoteObservable` stores `function_id` and a
-`tuple<Args...>`.
+`tuple<Args...>`. `cancelStream` always sends `stream_cancel`.
+If cancel runs before `stream_opened` arrives, the muxer remembers
+the id and sends cancel again when opened shows up.
 
 Responsibilities:
 
@@ -686,6 +719,11 @@ design. Multi-threaded execution is out of scope (section 16).
 - **One-connection DB refactor** if a dedicated `open_socket`
   socket is ever insufficient (`ensure_channel_` already reuses
   by `(pid, socket)`).
+- **Export registry** (server-side catalog of attachable
+  Observables). v1 attaches from a handler that already holds the
+  Observable.
+- **DB scan rewrite** onto `StreamPublisher`. `start_scan` stays
+  the low-level fast path.
 - **Multi-threaded execution** (section 15).
 - **Reordering operators** (`sortBy`, `groupBy`). v1 keeps the
   parent's binary key order.

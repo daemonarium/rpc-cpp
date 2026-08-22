@@ -7,9 +7,8 @@ namespace waos::observable {
   // Wire-facing sink for one stream_id. StreamMultiplexer demuxes incoming
   // stream_* messages onto a StreamReceiver. RemoteObservable implements this.
   //
-  // onStreamOpened is a no-op by default: the current wire stream_opened
-  // message has no stream_id (it is used as a socket-open ack) so the mux
-  // broadcasts it to every registered receiver.
+  // onStreamOpened is optional: the muxer owns cancel. RemoteObservable
+  // leaves it as a no-op.
   class StreamReceiver {
   public:
     virtual ~StreamReceiver() = default;

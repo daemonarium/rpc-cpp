@@ -4,6 +4,7 @@
 #include <functional>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "examples/structures/stream_protocol.hpp"
@@ -19,6 +20,8 @@ namespace waos::observable {
   // fill both roles (one-connection). Distinct instances = split start
   // vs stream sockets.
   //
+  // Does not subscribe to socket_opened (socket-bind ack, not per-stream).
+  //
   // The caller registers stream_* message types on the Channel (type
   // indexes must match the peer). This class only installs handlers.
   template <typename Starter, typename Channel = Starter>
@@ -28,6 +31,8 @@ namespace waos::observable {
     std::uint64_t returnPid_ = 0;
     std::uint32_t returnSocket_ = 0;
     std::unordered_map<std::uint64_t, StreamReceiver*> receivers_;
+    std::unordered_set<std::uint64_t> opened_;
+    std::unordered_set<std::uint64_t> cancelBeforeOpen_;
     std::uint64_t nextId_ = 1;
 
   public:
@@ -70,6 +75,9 @@ namespace waos::observable {
     void cancelStream(std::uint64_t id) {
       receivers_.erase(id);
       channel_.template send_message<waos::stream_cancel>(waos::stream_cancel{id});
+      if(!opened_.erase(id)) {
+        cancelBeforeOpen_.insert(id);
+      }
     }
 
     std::size_t size() const noexcept { return receivers_.size(); }
@@ -80,7 +88,7 @@ namespace waos::observable {
     void install() {
       channel_.template on_message<waos::stream_opened>(
         std::function<void(waos::stream_opened&)>(
-          [this](waos::stream_opened& m) { broadcastOpened(m); }));
+          [this](waos::stream_opened& m) { onOpened(m); }));
       channel_.template on_message<waos::stream_item>(
         std::function<void(waos::stream_item&)>(
           [this](waos::stream_item& m) {
@@ -103,17 +111,21 @@ namespace waos::observable {
           }));
     }
 
+    void onOpened(waos::stream_opened& m) {
+      if(cancelBeforeOpen_.erase(m.stream_id)) {
+        channel_.template send_message<waos::stream_cancel>(
+          waos::stream_cancel{m.stream_id});
+        return;
+      }
+      opened_.insert(m.stream_id);
+      dispatch(m.stream_id, [&](StreamReceiver* r) { r->onStreamOpened(m); });
+    }
+
     template <typename F>
     void dispatch(std::uint64_t id, F&& f) {
       auto it = receivers_.find(id);
       if(it == receivers_.end() || !it->second) return;
       f(it->second);
-    }
-
-    void broadcastOpened(waos::stream_opened& m) {
-      for(auto& entry : receivers_) {
-        if(entry.second) entry.second->onStreamOpened(m);
-      }
     }
   };
 
