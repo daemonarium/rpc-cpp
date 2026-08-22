@@ -162,6 +162,9 @@ start + `stream_*` + `stream_cancel`, registry resumption.
 `remote_registry_ut`: key equality, dedup, alive-across-idle,
 delta resume.
 
+`db-native-observable-test`: native E2E (`RemoteRegistry` →
+`RemoteObservable` → `StreamMultiplexer` → `db_native_process`).
+
 ## Out of scope (later slices)
 
 `FilteredObservable`, `MappedObservable`, `DeserializedObservable`.
