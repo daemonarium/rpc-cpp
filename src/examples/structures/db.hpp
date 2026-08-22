@@ -117,6 +117,8 @@ namespace waos {
         return serialization::promise<void>::resolved();
       }
 
+      // Stub kept for type registration / older clients. The native DB
+      // process does not register this RPC; cancel is stream_cancel.
       static std::shared_ptr<serialization::promise<void>> cancel_scan(std::uint64_t stream_id) {
         return serialization::promise<void>::resolved();
       }

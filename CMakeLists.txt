@@ -142,6 +142,27 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(stream_multiplexer_ut src/test/stream_multiplexer_ut.cpp)
+  target_include_directories(stream_multiplexer_ut PRIVATE src)
+  target_link_libraries(stream_multiplexer_ut PRIVATE Boost::ut)
+  set_target_properties(stream_multiplexer_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(remote_observable_ut src/test/remote_observable_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  target_include_directories(remote_observable_ut PRIVATE src)
+  target_link_libraries(remote_observable_ut PRIVATE Boost::ut socket_test_stub)
+  set_target_properties(remote_observable_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(remote_registry_ut src/test/remote_registry_ut.cpp)
+  target_include_directories(remote_registry_ut PRIVATE src)
+  target_link_libraries(remote_registry_ut PRIVATE Boost::ut)
+  set_target_properties(remote_registry_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   add_executable(serialization_flat_circular_ut src/test/serialization_flat_circular_ut.cpp ${IO_FILES})
   target_include_directories(serialization_flat_circular_ut PRIVATE src)
   target_link_libraries(serialization_flat_circular_ut PRIVATE Boost::ut)
@@ -349,6 +370,10 @@ if(NOT WASM)
   # --- CTest registration ---
 
   enable_testing()
+  add_test(NAME observable_ut COMMAND observable_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME stream_multiplexer_ut COMMAND stream_multiplexer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME remote_observable_ut COMMAND remote_observable_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME remote_registry_ut COMMAND remote_registry_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME io_circular_buffer_ut COMMAND io_circular_buffer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME socket_loopback_ut COMMAND socket_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_stream_ut COMMAND serialization_stream_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)

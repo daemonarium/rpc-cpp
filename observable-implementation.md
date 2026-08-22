@@ -1,14 +1,14 @@
 # Observable library — implementation (core slice)
 
-Status: core slice. This document records implementation decisions
-for `cpp-rpc/src/observable/` and the test suite. Requirements live
-in `observable-requirements.md`.
+Status: wire-bridge slice. This document records implementation
+decisions for `cpp-rpc/src/observable/` and the test suite.
+Requirements live in `observable-requirements.md`.
 
 ## Decisions log
 
 | Decision | Choice | Rejected | Why |
 |---|---|---|---|
-| Source hooks | Virtual `onStart` / `onStop` / `onPause` / `onResume` on `ObservableBase` | `std::function` hooks | Faster (vtable), easier to debug (overrides in stack traces). `RemoteObservable` will inherit `Observable` later. |
+| Source hooks | Virtual `onStart` / `onStop` / `onPause` / `onResume` on `ObservableBase` | `std::function` hooks | Faster (vtable), easier to debug (overrides in stack traces). `RemoteObservable` inherits `Observable`. |
 | Recovery | No `onRecover` hook | Separate recover API | Recovery is retransmit: `onReset` (`error → reloading`) or `onItem` (`error → loading`). |
 | Consumer (external) | C++ concept, five wire-mirror signals + `sinceTimestamp()` | Virtual consumer base | Zero-overhead for app consumers; compile-time check. |
 | Change | `{key, value, ts}`; empty value = tombstone | `ChangeKind` enum | Matches `stream_item` on the wire. |
@@ -20,17 +20,31 @@ in `observable-requirements.md`.
 | Buffer on overflow | Mark paused after a successful fill; source must honor `onPause` | Overwrite / drop | Consistency. Pause when **all** outputs are paused (`onPause`); resume when any unpauses (`onResume`). |
 | State machine | `idle`, `loading`, `ready`, `reloading`, `error`, `closed` | Terminal `closed` on last unsubscribe | Last unsubscribe → `idle` (view retained). `closed` is `kill()` / destruction only. |
 | Error after last unsubscribe | State → `idle`; exception kept in `lastError` | Drop the exception | Diagnostics after `error → idle`. Re-subscribe starts fresh. |
+| Muxer roles | `StreamMultiplexer<Starter, Channel>`: Starter=`call`, Channel=`on_message`/`send_message` | Hardcoded `kDbStartScan`/`kDbCancelScan`; kernel-shield client | Platform-agnostic. Same rpc_client = one-connection; distinct instances = split. |
+| Cancel | `stream_cancel{stream_id}` message | `cancel_scan` RPC (fn 6) | Producer stream layer handles by id; fire-and-forget; no-op if unknown. |
+| Registry key | `(function_id, serialized args)` via `flat_bytes_writer` | Explicit string key; reflection of dataset identity | Same shape as `rpc_call_mixin::call`. |
+| Registry ownership | Registry owns `RemoteObservable` across idle (no eviction in v1) | Destroy on last unsubscribe; weak_ptr | Resubscribe reuses `maxTs` / view → delta, not a full scan. |
+| DB start | Unchanged `start_scan` / `ensure_channel_` reuse by `(pid, socket)` | Per-stream sockets; muxer-owned bind | One-connection = dedicated `open_socket` socket. |
 
 ## Architecture
 
 ```
-  wire (stream_item / stream_done / stream_reset / stream_error)
+  RemoteRegistry  (key = function_id + serialized args)
+          │  owns RemoteObservable across idle
+          ▼
+  RemoteObservable<Starter, Channel, Args...>
+          │  onStart: mux.createStream(fn, maxTs, this, args...)
+          │  onStop:  mux.cancelStream → stream_cancel
+          ▼
+  StreamMultiplexer<Starter, Channel>
+          │  Starter.call<void>(fn, handle, args...)
+          │  Channel.on_message<stream_*>
+          │  Channel.send_message<stream_cancel>
+          ▼
+  wire (stream_item / stream_done / stream_reset / stream_error / stream_cancel)
           │
           ▼
-  RemoteObservable  (later slice; inherits Observable)
-          │  onItem / onDone / onReset / onError
-          ▼
-  Observable  (this slice)  ──► ConsumerOutput ──► Consumer
+  Observable  ──► ConsumerOutput ──► Consumer
           │                         │
           │                         │ onChange / onReady / onReset
           │                         │ onError / onClosed
@@ -40,11 +54,7 @@ in `observable-requirements.md`.
 
 Signal symmetry: wire messages, Observable source API, and Consumer
 callbacks are the same five events. A relay consumer can forward
-verbatim.
-
-This slice has no wire and no operators. Tests use `ManualSource`
-(an `Observable` subclass that records hook calls and exposes
-`push` / `done` / `reset` / `fail` / `recover`).
+verbatim. Cancel is a sixth message, consumer → producer only.
 
 ## Class responsibilities
 
@@ -68,14 +78,28 @@ Public source API: `onItem`, `onDone`, `onReset`, `onError`.
 
 **`ManualSource`** (tests only) — overrides hooks; `recover()` is
 `onReset` then fresh items + `onDone` (same path `RemoteObservable`
-will use).
+uses).
+
+**`StreamMultiplexer<Starter, Channel>`** — demuxes `stream_*` by
+`stream_id`. `createStream(function_id, since, receiver, args...)`
+builds `stream_handle` from muxer-owned return pid/socket and
+calls `starter.call<void>`. `cancelStream` sends `stream_cancel`
+on the channel.
+
+**`RemoteObservable<Starter, Channel, Args...>`** — wire →
+`Observable<BinaryEntry>` bridge. Stores `function_id` +
+`tuple<Args...>`. `onStart` / `onStop` go through the muxer.
+
+**`RemoteRegistry<Starter, Channel>`** — `getOrCreate` keyed by
+`(function_id, serialized args)`. Owns the observable across idle
+so resumption is a delta.
 
 ## Source hook contract
 
-| Hook | When | Typical override (later RemoteObservable) |
+| Hook | When | Typical override (`RemoteObservable`) |
 |---|---|---|
-| `onStart` | refcount 0 → 1 | `start_scan` with `since = maxTs` |
-| `onStop` | refcount → 0 | `cancel_scan` |
+| `onStart` | refcount 0 → 1 | `mux.createStream(function_id, maxTs, this, args...)` |
+| `onStop` | refcount → 0 | `mux.cancelStream` (`stream_cancel`) |
 | `onPause` | all consumers paused | stop reading the socket |
 | `onResume` | at least one consumer unpaused | resume reading |
 
@@ -128,7 +152,18 @@ ring_buffer (22–23), async backpressure (24–27), retransmit (28–29),
 readyPromise (30), error→idle + `lastError` (31), recovery via
 retransmit (32).
 
+`stream_multiplexer_ut`: sequential ids, demux, cancel drops
+unknown ids, `stream_cancel` (not RPC), two-role vs one-client.
+
+`remote_observable_ut`: subscribe/`onStart`, wire signals, last
+unsubscribe cancel, resubscribe `since = maxTs`, loopback
+start + `stream_*` + `stream_cancel`, registry resumption.
+
+`remote_registry_ut`: key equality, dedup, alive-across-idle,
+delta resume.
+
 ## Out of scope (later slices)
 
-`FilteredObservable`, `MappedObservable`, `RemoteObservable`,
-`RemoteRegistry` dedup, `DeserializedObservable`.
+`FilteredObservable`, `MappedObservable`, `DeserializedObservable`.
+Registry GC (TTL / weak-ref eviction). One-connection DB refactor
+if a dedicated `open_socket` socket is ever insufficient.

@@ -37,8 +37,7 @@ Out of scope for v1 (section 16):
 - Server-side graph execution.
 - `TableObservable` and other source specializations beyond
   `RemoteObservable`.
-- Dedup mechanism details (requirement recorded in section 13,
-  mechanism TBD).
+- Registry GC (TTL / weak-ref eviction of idle `RemoteObservable`s).
 - Multi-threaded execution.
 
 ## 2. Core concepts
@@ -168,14 +167,14 @@ construct and compose freely without triggering I/O.
 The chain starts only when a terminal consumer subscribes
 (`observable.subscribe(consumer)`). Subscribe walks the tree
 upstream incrementing refcounts; the source starts (e.g.
-`RemoteObservable` sends `start_scan`) when its refcount goes from
-0 to 1.
+`RemoteObservable` issues the start RPC via the muxer) when its
+refcount goes from 0 to 1.
 
 ### Unsubscribe stops the chain (to idle, not closed)
 
 `unsubscribe(consumer)` decrements refcounts downstream-upstream.
 When a source's refcount reaches 0, it stops (e.g. sends
-`cancel_scan` or closes the stream). The Observable enters `idle`
+`stream_cancel`). The Observable enters `idle`
 state — **not** `closed`. `idle` is non-terminal: the view is
 retained and re-subscribe is possible (section 5). `closed` is
 reserved for explicit `kill()` / destruction (section 5).
@@ -228,7 +227,7 @@ An `Observable` is always in exactly one state:
     │                        ▼
     │                     reloading / loading
     │
-    │  last unsubscribe (refcount 0): cancel_scan, view retained
+    │  last unsubscribe (refcount 0): stream_cancel, view retained
     └────────────────────────┘
 
    any state ──► closed   (explicit kill / destruction only)
@@ -236,7 +235,7 @@ An `Observable` is always in exactly one state:
 
 States:
 
-- `idle` — 0 consumers, upstream stopped (`cancel_scan` sent),
+- `idle` — 0 consumers, upstream stopped (`stream_cancel` sent),
   view retained (may be empty if never loaded; `maxTs` may be 0).
   Non-terminal. Re-subscribe goes to `loading` with
   `since = maxTs` (delta if `maxTs > 0`, full scan if `maxTs == 0`).
@@ -278,7 +277,7 @@ Transitions:
   retransmit). The exact trigger lives in `RemoteObservable`;
   the Observable only reacts to `onItem` / `onReset`.
 - `loading/ready/reloading/error → idle` on **last unsubscribe**
-  (refcount 0). Upstream stops (`cancel_scan`); view retained.
+  (refcount 0). Upstream stops (`stream_cancel`); view retained.
   `error → idle` on last unsubscribe means the error **state** is
   abandoned; the exception is kept in `lastError` for diagnostics.
   Re-subscribe from `idle` starts fresh with `since = maxTs`.
@@ -563,29 +562,41 @@ terminal state. Last unsubscribe never enters `closed`; it enters
 ## 12. RemoteObservable: wire bridge
 
 `RemoteObservable` is the class that connects a core `Observable`
-to the wire (flat RPC + stream protocol). It is the only class in
-the library that knows about `stream_handle`, `stream_item`,
-`stream_done`, `stream_reset`, `stream_error`, and `start_scan` /
-`cancel_scan`.
+to the wire (flat RPC + stream protocol). It does not hardcode DB
+function ids. Start is `function_id` + args (the same shape as
+`rpc_call_mixin::call`). Cancel is a `stream_cancel{stream_id}`
+message, not an RPC.
+
+`StreamMultiplexer<Starter, Channel>` is the platform-agnostic
+demux: `Starter` issues `call<void>(function_id, handle, args...)`;
+`Channel` receives `stream_*` and sends `stream_cancel`. No
+kernel-shield dependency. An `rpc_client` can fill both roles
+(one-connection). Distinct instances = split start vs stream
+sockets. One-connection is a dedicated socket the app opens with
+`open_socket`; `start_scan` / `ensure_channel_` already reuse by
+`(pid, socket)`, so several streams share that socket.
+
+The muxer owns the return channel (`pid` / `socket` on
+`stream_handle`). `RemoteObservable` stores `function_id` and a
+`tuple<Args...>`.
 
 Responsibilities:
 
-- On first subscribe (from `idle`): send `start_scan` with
-  `stream_handle.since_timestamp = maxTs` (delta if `maxTs > 0`,
-  full scan if `maxTs == 0`) and `db_scan_query` (bounds, limit,
-  reverse, keys_only).
+- On first subscribe (from `idle`): `createStream(function_id,
+  since = maxTs, this, args...)`. For DB this is `start_scan`
+  (fn 5) with `db_scan_query`.
 - On `stream_item`: translate to `Change { key, value, ts }` and
   feed the Observable.
 - On `stream_done`: Observable `loading → ready` (or
   `reloading → ready`).
 - On `stream_reset`: Observable `ready → reloading` (section 10).
 - On `stream_error`: Observable `→ error` (section 11).
-- On last unsubscribe: send `cancel_scan` (or close the stream).
-  Observable `→ idle` (view retained, upstream stopped). This is
-  **not** `closed`; re-subscribe is possible (section 5).
+- On last unsubscribe: send `stream_cancel`. Observable `→ idle`
+  (view retained, upstream stopped). This is **not** `closed`;
+  re-subscribe is possible (section 5).
 - On transport reconnect (while `idle`): no-op — upstream is
   already stopped; nothing to resume. Re-subscribe will start a
-  fresh `start_scan` with `since = maxTs`.
+  fresh stream with `since = maxTs`.
 - On transport reconnect (while active `loading`/`ready`/
   `reloading`): resume with
   `stream_handle.since_timestamp = maxTs` (section 7).
@@ -621,15 +632,24 @@ parent, then deserialize at the end).
 ## 14. Dedup of remote observables
 
 When multiple `Observable`s over the **same** remote dataset are
-created, they must share one upstream stream (one `start_scan`,
-one wire connection). This is an essential optimization: without
-it, N views of the same table produce N scans and N sockets.
+created, they must share one upstream stream (one start RPC, one
+wire stream). This is an essential optimization: without it, N
+views of the same table produce N scans.
+
+**Mechanism:** `RemoteRegistry` keyed by `ObservationKey
+{function_id, serialized args}`. Args are serialized with
+`flat_bytes_writer` (deterministic; same bytes as a tuple on the
+wire). `getOrCreate` returns a `shared_ptr<RemoteObservable>` that
+the registry **owns** for the connection lifetime, so the object
+survives idle (0 consumers). Resubscribe reuses the same
+observable and therefore `maxTs` / the retained view — the start
+RPC is a delta (`since = maxTs`), not a full scan.
+
+One muxer per connection. v1 does not evict idle entries (TTL /
+weak-ref GC is a follow-up).
 
 This dedup lives in the **source / `RemoteObservable` layer**,
-not in the core `Observable`. The core library is agnostic. The
-mechanism (likely reflection-based or code-generated keys for
-dataset identity) is TBD. Requirement recorded; implementation
-deferred.
+not in the core `Observable`. The core library is agnostic.
 
 ## 15. Threading model
 
@@ -660,8 +680,12 @@ design. Multi-threaded execution is out of scope (section 16).
   tree). v1 is client-side composition only.
 - **`TableObservable`** and other source specializations where
   `range(...)` issues a new upstream query (section 9).
-- **Dedup mechanism** details (section 14). Requirement recorded;
-  mechanism TBD.
+- **Registry GC** (TTL / weak-ref eviction of idle
+  `RemoteObservable`s). v1 keeps every entry for the connection
+  lifetime (section 14).
+- **One-connection DB refactor** if a dedicated `open_socket`
+  socket is ever insufficient (`ensure_channel_` already reuses
+  by `(pid, socket)`).
 - **Multi-threaded execution** (section 15).
 - **Reordering operators** (`sortBy`, `groupBy`). v1 keeps the
   parent's binary key order.
@@ -678,8 +702,6 @@ design. Multi-threaded execution is out of scope (section 16).
 - **Recovery trigger mechanism** in `RemoteObservable`
   (auto-reconnect timer vs transport-level reconnect vs explicit
   `retry()`). Section 11.
-- **Dedup mechanism** (reflection vs codegen vs explicit key).
-  Section 14.
 - **Default per-consumer buffer size** for backpressure. Section 8.
 - **Whether `MappedObservable` may change the key** (reorder) or
   is restricted to value-only maps in v1. Section 9 currently
@@ -718,5 +740,6 @@ The v1 library must satisfy:
 12. Backpressure: bounded per-consumer buffer; propagates upstream. (req 8)
 13. Single-threaded; I/O thread in C++. (req 15)
 14. Core on `binary`; `DeserializedObservable` is terminal helper. (req 2, 7)
-15. `RemoteObservable` is the only wire-aware class. (req 7, 12)
+15. `RemoteObservable` + `StreamMultiplexer` + `RemoteRegistry`
+    are the wire-aware source layer. (req 7, 12, 14)
 16. Dedup of same-remote observables in the source layer. (req 14)

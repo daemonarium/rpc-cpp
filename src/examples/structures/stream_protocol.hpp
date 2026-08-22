@@ -90,6 +90,12 @@ namespace waos {
     std::uint64_t stream_id = 0;
   };
 
+  // Consumer -> producer: tear down the stream with this id. Fire-and-forget.
+  // Producer no-ops if the id is unknown or already ended.
+  struct [[=serialization::message()]] stream_cancel {
+    std::uint64_t stream_id = 0;
+  };
+
   // Observation phase messages — defined for the standard, not yet registered by DB.
   struct [[=serialization::message()]] stream_observe_begin {
     std::uint64_t stream_id = 0;
