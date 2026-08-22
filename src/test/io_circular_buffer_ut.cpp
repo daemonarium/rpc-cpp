@@ -253,4 +253,22 @@ int main() {
       circular_buffer_destroy(cb);
     }
   };
+
+  "io linearize unwraps wrapped readable"_test = [] {
+    struct circular_buffer* cb = circular_buffer_create(64, nullptr);
+    force_read_near_end(cb, 50);
+    std::vector<std::uint8_t> payload(40);
+    for(size_t i = 0; i < payload.size(); ++i) {
+      payload[i] = static_cast<std::uint8_t>(i + 1);
+    }
+    expect(eq(circular_buffer_write(cb, payload.data(), payload.size()), payload.size()));
+    expect(eq(circular_buffer_region_contiguous(cb, 0, payload.size()), 0));
+    circular_buffer_linearize(cb);
+    expect(eq(circular_buffer_readable_bytes(cb), payload.size()));
+    expect(neq(circular_buffer_region_contiguous(cb, 0, payload.size()), 0));
+    std::vector<std::uint8_t> out(payload.size());
+    expect(eq(circular_buffer_peek(cb, 0, out.data(), out.size()), out.size()));
+    expect(static_cast<bool>(out == payload));
+    circular_buffer_destroy(cb);
+  };
 }

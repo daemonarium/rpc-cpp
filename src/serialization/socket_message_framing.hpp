@@ -157,10 +157,14 @@ namespace serialization {
           }
           circular_buffer_peek(&transport_.input_buffer(), 0, &msg_len, sizeof(msg_len));
           size_t available = circular_buffer_readable_bytes(&transport_.input_buffer());
-          if(available < sizeof(msg_len) + msg_len) {
-            circular_buffer_reserve_for_reading(&transport_.input_buffer(), msg_len + sizeof(msg_len));
+          const size_t need = sizeof(msg_len) + msg_len;
+          if(available < need) {
+            circular_buffer_reserve_for_reading(&transport_.input_buffer(), need);
             transport_.drain();
             return;
+          }
+          if(!circular_buffer_region_contiguous(&transport_.input_buffer(), 0, need)) {
+            circular_buffer_linearize(&transport_.input_buffer());
           }
 
           // Consume length prefix

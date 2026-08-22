@@ -20,20 +20,27 @@ void register_all() {
   waos::db_scan_query scanQuery;
   register_rpc(scanQuery);
 
-  waos::db_socket_opened socketOpened;
+  waos::channel_handle channelHandle;
+  register_rpc(channelHandle);
+  waos::stream_handle streamHandle;
+  register_rpc(streamHandle);
+
+  waos::stream_opened socketOpened;
   register_rpc(socketOpened);
   waos::db_visible_event visibleEv;
   register_rpc(visibleEv);
   waos::db_durable_event durableEv;
   register_rpc(durableEv);
-  waos::db_scan_item scanItem;
+  waos::stream_item scanItem;
   register_rpc(scanItem);
-  waos::db_scan_key scanKey;
+  waos::stream_key scanKey;
   register_rpc(scanKey);
-  waos::db_scan_done scanDone;
+  waos::stream_done scanDone;
   register_rpc(scanDone);
-  waos::db_scan_error scanError;
+  waos::stream_error scanError;
   register_rpc(scanError);
+  waos::stream_reset scanReset;
+  register_rpc(scanReset);
 
   waos::db_error dbError;
   register_rpc(dbError);

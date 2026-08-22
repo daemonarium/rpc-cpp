@@ -31,6 +31,7 @@ namespace {
   bool connected_ = false;
   std::unique_ptr<serialization::flat_socket_rpc_client> db_control;
   std::unique_ptr<serialization::flat_socket_rpc_client> db_private;
+  std::uint64_t next_stream_id = 1;
   std::uint64_t scan_items = 0;
   std::uint64_t scan_dones = 0;
   std::shared_ptr<serialization::promise<void>> scan_done_promise;
@@ -61,11 +62,12 @@ namespace {
     c.channel().template register_exception_type<waos::db_invalid_argument>();
     c.channel().template register_exception_type<waos::db_closed>();
     c.channel().template register_exception_type<waos::db_io_error>();
-    c.register_message_type<waos::db_socket_opened>();
-    c.register_message_type<waos::db_scan_item>();
-    c.register_message_type<waos::db_scan_key>();
-    c.register_message_type<waos::db_scan_done>();
-    c.register_message_type<waos::db_scan_error>();
+    c.register_message_type<waos::stream_opened>();
+    c.register_message_type<waos::stream_item>();
+    c.register_message_type<waos::stream_key>();
+    c.register_message_type<waos::stream_done>();
+    c.register_message_type<waos::stream_error>();
+    c.register_message_type<waos::stream_reset>();
     c.register_message_type<waos::db_visible_event>();
     c.register_message_type<waos::db_durable_event>();
   }
@@ -90,24 +92,24 @@ namespace {
     wire_client(*db_control);
     wire_client(*db_private);
 
-    db_private->on_message<waos::db_socket_opened>(
-        std::function<void(waos::db_socket_opened&)>([](waos::db_socket_opened&) {
+    db_private->on_message<waos::stream_opened>(
+        std::function<void(waos::stream_opened&)>([](waos::stream_opened&) {
           connected_ = true;
           if(opened_promise) {
             opened_promise->resolve();
           }
         }));
-    db_private->on_message<waos::db_scan_item>(
-        std::function<void(waos::db_scan_item&)>([](waos::db_scan_item&) { ++scan_items; }));
-    db_private->on_message<waos::db_scan_done>(
-        std::function<void(waos::db_scan_done&)>([](waos::db_scan_done&) {
+    db_private->on_message<waos::stream_item>(
+        std::function<void(waos::stream_item&)>([](waos::stream_item&) { ++scan_items; }));
+    db_private->on_message<waos::stream_done>(
+        std::function<void(waos::stream_done&)>([](waos::stream_done&) {
           ++scan_dones;
           if(scan_done_promise) {
             scan_done_promise->resolve();
           }
         }));
-    db_private->on_message<waos::db_scan_error>(
-        std::function<void(waos::db_scan_error&)>([](waos::db_scan_error& e) {
+    db_private->on_message<waos::stream_error>(
+        std::function<void(waos::stream_error&)>([](waos::stream_error& e) {
           if(scan_done_promise) {
             try {
               throw waos::db_io_error(e.message);
@@ -115,6 +117,10 @@ namespace {
               scan_done_promise->reject(std::current_exception());
             }
           }
+        }));
+    db_private->on_message<waos::stream_reset>(
+        std::function<void(waos::stream_reset&)>([](waos::stream_reset&) {
+          scan_items = 0;
         }));
 
     auto* control_ptr = db_control.get();
@@ -154,7 +160,7 @@ std::shared_ptr<serialization::promise<void>> DbBenchClient::connect() {
   }
   opened_promise = std::make_shared<serialization::promise<void>>();
   co_await db_control->call<void>(
-      kDbOpenSocket, static_cast<std::uint64_t>(self_pid_), kDbPrivateSock);
+      kDbOpenSocket, waos::channel_handle{self_pid_, kDbPrivateSock});
   if(!connected_) {
     co_await opened_promise;
   }
@@ -177,8 +183,9 @@ std::shared_ptr<serialization::promise<std::uint64_t>> DbBenchClient::scan_colle
   scan_dones = 0;
   scan_done_promise = std::make_shared<serialization::promise<void>>();
   waos::db_scan_query q;
+  const std::uint64_t stream_id = next_stream_id++;
   co_await db_control->call<void>(
-      kDbStartScan, static_cast<std::uint64_t>(self_pid_), kDbPrivateSock, q);
+      kDbStartScan, waos::stream_handle{self_pid_, kDbPrivateSock, stream_id}, q);
   if(scan_dones == 0) {
     co_await scan_done_promise;
   }
@@ -204,9 +211,10 @@ std::shared_ptr<serialization::promise<bench_result>> DbBenchClient::bench_scan(
   scan_dones = 0;
   scan_done_promise = std::make_shared<serialization::promise<void>>();
   waos::db_scan_query q;
+  const std::uint64_t stream_id = next_stream_id++;
   const auto t0 = std::chrono::steady_clock::now();
   co_await db_control->call<void>(
-      kDbStartScan, static_cast<std::uint64_t>(self_pid_), kDbPrivateSock, q);
+      kDbStartScan, waos::stream_handle{self_pid_, kDbPrivateSock, stream_id}, q);
   if(scan_dones == 0) {
     co_await scan_done_promise;
   }

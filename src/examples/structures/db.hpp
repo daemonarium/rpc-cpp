@@ -6,10 +6,9 @@
 #include <exception>
 #include "serialization/annotations.hpp"
 #include "serialization/promise.hpp"
+#include "stream_protocol.hpp"
 
 namespace waos {
-
-  using binary = std::vector<std::uint8_t>;
 
   enum class db_write_mode : std::uint8_t {
     durable = 0,
@@ -77,38 +76,12 @@ namespace waos {
     explicit db_io_error(const std::string& message) : db_error(message) {}
   };
 
-  // Empty readiness signal on a newly bound private channel (no db_socket_id).
-  struct [[=serialization::message()]] db_socket_opened {
-  };
-
   struct [[=serialization::message()]] db_visible_event {
     std::uint64_t request_id = 0;
   };
 
   struct [[=serialization::message()]] db_durable_event {
     std::uint64_t request_id = 0;
-  };
-
-  struct [[=serialization::message()]] db_scan_item {
-    std::uint64_t scan_uid = 0;
-    binary key;
-    binary value;
-    std::uint64_t timestamp = 0;
-  };
-
-  // keys_only scan item (no value / timestamp).
-  struct [[=serialization::message()]] db_scan_key {
-    std::uint64_t scan_uid = 0;
-    binary key;
-  };
-
-  struct [[=serialization::message()]] db_scan_done {
-    std::uint64_t scan_uid = 0;
-  };
-
-  struct [[=serialization::message()]] db_scan_error {
-    std::uint64_t scan_uid = 0;
-    std::string message;
   };
 
   // Full API on control USER socket and on every private channel (open_socket).
@@ -131,23 +104,20 @@ namespace waos {
         return serialization::promise<void>::resolved();
       }
 
-      static std::shared_ptr<serialization::promise<void>> open_socket(
-          std::uint64_t client_pid, std::uint32_t client_socket) {
+      static std::shared_ptr<serialization::promise<void>> open_socket(channel_handle channel) {
         return serialization::promise<void>::resolved();
       }
 
-      static std::shared_ptr<serialization::promise<void>> close_socket(
-          std::uint64_t client_pid, std::uint32_t client_socket) {
+      static std::shared_ptr<serialization::promise<void>> close_socket(channel_handle channel) {
         return serialization::promise<void>::resolved();
       }
 
-      // scan_uid for messages = RPC framing request_id of this call.
       static std::shared_ptr<serialization::promise<void>> start_scan(
-          std::uint64_t client_pid, std::uint32_t client_socket, db_scan_query query) {
+          stream_handle stream, db_scan_query query) {
         return serialization::promise<void>::resolved();
       }
 
-      static std::shared_ptr<serialization::promise<void>> cancel_scan(std::uint64_t scan_uid) {
+      static std::shared_ptr<serialization::promise<void>> cancel_scan(std::uint64_t stream_id) {
         return serialization::promise<void>::resolved();
       }
   };
