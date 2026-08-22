@@ -135,6 +135,13 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(observable_ut src/test/observable_ut.cpp)
+  target_include_directories(observable_ut PRIVATE src)
+  target_link_libraries(observable_ut PRIVATE Boost::ut)
+  set_target_properties(observable_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   add_executable(serialization_flat_circular_ut src/test/serialization_flat_circular_ut.cpp ${IO_FILES})
   target_include_directories(serialization_flat_circular_ut PRIVATE src)
   target_link_libraries(serialization_flat_circular_ut PRIVATE Boost::ut)

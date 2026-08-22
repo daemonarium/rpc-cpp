@@ -81,16 +81,29 @@ Change {
 
 ```
 Consumer {
-  onChange(change: Change): Promise<void>   // async; await = processed
-  onReady(): void                            // initial scan complete
-  onError(error: Error): void               // recoverable (section 11)
+  onChange(change: Change): Promise<void>   // stream_item; async; await = processed
+  onReady(): void                            // stream_done (initial scan / reload complete)
+  onReset(): void                            // stream_reset; clear/swap, retransmit incoming
+  onError(error: Error): void               // stream_error; recoverable (section 11)
   onClosed(): void                           // terminal
+  sinceTimestamp(): uint64                   // initial replay watermark at subscribe
 }
 ```
+
+The consumer interface mirrors the wire signal set (`stream_item`,
+`stream_done`, `stream_reset`, `stream_error`) so a relay consumer
+can forward each signal downstream verbatim (wire -> Observable
+tree -> consumer -> wire -> next process). Without `onReset`,
+retransmit cannot propagate through a relay chain.
 
 `onChange` is async. The library awaits it before sending the next
 change to that consumer (per-consumer serialization). This is the
 backpressure seam (section 8).
+
+`sinceTimestamp()` is the **initial** seed for the library's
+per-output `replayWatermark` at subscribe (section 6). The library
+owns the running watermark after that; the consumer may track its
+own `lastTs` independently.
 
 ### Source
 
@@ -209,9 +222,11 @@ An `Observable` is always in exactly one state:
     │                        ▼
     │                      error
     │                        │
-    │                        │ source reconnects (since=maxTs)
+    │                        │ source reconnects: stream_reset
+    │                        │   (recovery = retransmit)
+    │                        │ or onItem (delta resume)
     │                        ▼
-    │                     loading (or ready if view confirms)
+    │                     reloading / loading
     │
     │  last unsubscribe (refcount 0): cancel_scan, view retained
     └────────────────────────┘
@@ -252,18 +267,21 @@ Transitions:
 - `idle → loading` on subscribe (`since = maxTs`; 0 if fresh).
 - `loading → ready` on `stream_done`.
 - `ready → reloading` on `stream_reset`.
+- `error → reloading` on `stream_reset` (recovery = retransmit).
+- `loading → reloading` on `stream_reset` (scan restarted).
 - `reloading → ready` on `stream_done` (after atomic swap of
   `data` and `oldData`, section 10).
 - `any → error` on `stream_error`.
-- `error → loading` (or `ready` if the view already has data and
-  the source resumes with a delta from `maxTs`) when the source
-  reconnects. The exact trigger and retry policy live in
-  `RemoteObservable` (section 11); the Observable only reacts to
-  the source coming back.
+- `error → loading` on `onItem` (delta resume; data flow
+  resumes, error cleared). `error → reloading` on `stream_reset`
+  (recovery is retransmit; same clear-and-rebuild as a ready
+  retransmit). The exact trigger lives in `RemoteObservable`;
+  the Observable only reacts to `onItem` / `onReset`.
 - `loading/ready/reloading/error → idle` on **last unsubscribe**
   (refcount 0). Upstream stops (`cancel_scan`); view retained.
-  `error → idle` on last unsubscribe means the error is abandoned;
-  re-subscribe from `idle` starts fresh with `since = maxTs`.
+  `error → idle` on last unsubscribe means the error **state** is
+  abandoned; the exception is kept in `lastError` for diagnostics.
+  Re-subscribe from `idle` starts fresh with `since = maxTs`.
 - `any → closed` on **explicit `kill()` / destruction** only.
   `kill()` forces `closed` even if consumers remain (it
   unsubscribes all consumers first, then marks terminal).
@@ -293,8 +311,9 @@ inconsistencies). This is a hard requirement and the reason
 On `subscribe(consumer)`:
 
 1. If the view is non-empty, replay the current materialized entries
-   to the new consumer as a sequence of `Change` events (kind = set,
-   with each entry's `ts`).
+   to the new consumer as a sequence of `Change` events (live entries
+   only — empty value is a tombstone and is not stored in the view,
+   so replay is sets only, each with that entry's `ts`).
 2. Then deliver live changes from the shared upstream as they arrive.
 
 Replay is **local** (no upstream re-query). The upstream stream is
@@ -317,18 +336,31 @@ parked Observable without paying for a full rescan.
 
 ### ts-based replay optimization
 
-Replay is ts-aware. Each consumer tracks `lastTs` (the max `ts` it
-has seen). On (re)subscribe, replay only entries with
-`ts > consumer.lastTs`:
+Replay is ts-aware. The **library** tracks a per-output
+`replayWatermark` (distinct from any `lastTs` the consumer keeps
+for its own use). On subscribe it is initialized from
+`consumer.sinceTimestamp()`. On each delivered change it becomes
+`max(replayWatermark, change.ts)`. On `stream_reset` it is reset
+to 0.
 
-- New consumer: `lastTs = 0` → full replay.
-- Returning consumer (e.g. after a transient unsubscribe or after
-  an error recovery): `lastTs = X` → replay only entries with
-  `ts > X`, typically a small delta.
+On (re)subscribe, replay only entries with `ts > replayWatermark`:
+
+- New consumer: `sinceTimestamp() = 0` → `replayWatermark = 0` →
+  full replay.
+- Returning consumer (e.g. after a transient unsubscribe):
+  `sinceTimestamp() = X` → replay only entries with `ts > X`,
+  typically a small delta.
+
+The consumer's own `lastTs` must **not** be used as the replay
+filter. After `stream_reset`, the consumer receives retransmit
+items via `onChange` during `reloading` and its `lastTs` grows;
+if the library then filtered by `consumer.lastTs`, post-reload
+replay would skip the fresh full state. `sinceTimestamp()` is
+only the initial seed; the library owns the running watermark.
 
 This makes replay cheap for returning consumers and uses
-`since_timestamp` semantics locally. The consumer's `lastTs` is
-per-consumer state; the shared view is unaffected.
+`since_timestamp` semantics locally. The shared view is
+unaffected.
 
 ### readyPromise
 
@@ -462,16 +494,19 @@ on stream_reset:
   oldData = std::move(data)
   data = {}                  // new, empty
   state = reloading
+  fan out onReset() to all consumers   // consumers clear / swap
+  reset each output replayWatermark to 0
   // reads during reloading serve from oldData (stale but coherent)
 
 on stream_item (during reloading):
-  data.insert({key, value, ts})
+  data.insert({key, value, ts})   // live entries only
+  fan out onChange to consumers   // they already cleared
 
 on stream_done (after reloading):
-  // reconciliate: keys in oldData absent from data = delete
-  for k, v in oldData:
-    if k not in data:
-      data[k] = { value: empty, ts: maxTs }   // tombstone
+  // NO reconciliation loop. data_ holds the full rescan.
+  // Synthesizing tombstones with ts=maxTs would poison per-key
+  // monotonicity (a later live set with ts between the real
+  // delete and maxTs would be dropped).
   oldData = {}
   state = ready
   notify onReady / resolve readyPromise
@@ -479,17 +514,18 @@ on stream_done (after reloading):
 
 During `reloading`, `get(k)` and `getEntries()` serve from
 `oldData` (the previous coherent snapshot). After `stream_done`,
-the new `data` is complete and atomically swaps in. This gives
-consumers a consistent view throughout the retransmit (no partial
-state visible) and satisfies requirement 9.
+the new `data` is complete and atomically swaps in (oldData
+dropped). This gives snapshot readers a consistent view
+throughout the retransmit (no partial state visible) and
+satisfies requirement 9.
 
-Consumers receive the retransmit as a fresh replay: the library
-emits the new `data` as `Change` events to each consumer
-(respecting each consumer's `lastTs` per section 6). The consumer's
-`lastTs` resets on `stream_reset` (because the full rescan carries
-entries with their original `ts`, which may be <= the consumer's
-`lastTs` from before the reset). After `stream_done`, `lastTs`
-resumes normal growth.
+Consumers follow the same clear-and-rebuild: `onReset` is the
+clear/swap signal; subsequent `onChange` events are the new
+dataset (sets only; empty value = tombstone as usual). Keys
+absent from the rescan are gone because the consumer cleared,
+not because the library synthesized deletes. A relay consumer
+forwards `onReset` as `stream_reset` and `onChange` as
+`stream_item`, so the same protocol continues downstream.
 
 ## 11. Error handling: recoverable
 
@@ -502,24 +538,23 @@ Behavior:
 - On `stream_error`, the Observable enters `error`, retains its
   view, and notifies consumers via `onError(error)`.
 - The recovery trigger lives in `RemoteObservable` (the source /
-  transport layer), not in the core Observable. The exact mechanism
-  (auto-reconnect timer, transport-level reconnect, explicit
-  `retry()`) is TBD. The Observable only reacts to the source
-  coming back.
+  transport layer), not in the core Observable. There is **no**
+  `onRecover` hook. Recovery **is** retransmit: the source comes
+  back and either sends `stream_reset` (`error → reloading`) or
+  resumes with a delta (`onItem` → `error → loading`).
 - When the source reconnects, it resumes with
   `stream_handle.since_timestamp = maxTs` (section 7). The
-  Observable transitions `error → loading` (or `error → ready` if
-  the view already has data and the resume is a delta that
-  confirms the current state).
-- Consumers see `onError` then `onReady` (or `onChange` for the
-  delta catch-up) — never a terminal signal.
+  Observable transitions `error → loading` on `onItem`, or
+  `error → reloading` on `stream_reset`.
+- Consumers see `onError` then either `onReset` + `onChange` +
+  `onReady` (retransmit) or `onChange` + `onReady` (delta
+  catch-up) — never a terminal signal.
 - On **last unsubscribe** while in `error`: the Observable goes
-  `error → idle` (not `closed`). The error is abandoned; the
-  view is retained. Re-subscribe from `idle` starts fresh with
+  `error → idle` (not `closed`). The error **state** is abandoned;
+  the exception is kept in `lastError` for diagnostics. The view
+  is retained. Re-subscribe from `idle` starts fresh with
   `since = maxTs` (section 6). This avoids a sticky error
-  state with no consumers, which would complicate consumer logic
-  (a re-subscribed Observable would inherit an unrelated old
-  error).
+  state with no consumers.
 
 `closed` (explicit `kill()` / destruction only) is the only
 terminal state. Last unsubscribe never enters `closed`; it enters
@@ -554,7 +589,9 @@ Responsibilities:
 - On transport reconnect (while active `loading`/`ready`/
   `reloading`): resume with
   `stream_handle.since_timestamp = maxTs` (section 7).
-- On transport reconnect after `error`: drive `error → loading`.
+- On transport reconnect after `error`: drive recovery as
+  retransmit (`stream_reset` → `error → reloading`) or as a
+  delta (`onItem` → `error → loading`).
 
 The core `Observable` and the operator nodes never see wire types.
 This keeps the library testable without a socket and portable
@@ -630,9 +667,9 @@ design. Multi-threaded execution is out of scope (section 16).
   parent's binary key order.
 - **Join / diff / merge / limit / reverse** as library operators
   (section 9). Buildable in user code in v1.
-- **Replay with ts filtering beyond the per-consumer `lastTs`**
+- **Replay with ts filtering beyond the per-output `replayWatermark`**
   (e.g. windowed replay, snapshot isolation). v1 uses the
-  per-consumer `lastTs` only.
+  library-tracked `replayWatermark` only.
 - **Explicit `retry()` API on Observable**. v1 puts retry in
   `RemoteObservable`.
 
@@ -671,8 +708,8 @@ The v1 library must satisfy:
 7. GC: `WeakRef`/`FinalizationRegistry` (TS), `shared/weak_ptr`
    (C++). (req 7)
 8. `ready` state + `readyPromise`; `ready` ≠ "no more changes". (req 8)
-9. Retain `oldData` on `stream_reset`; atomic swap on
-   `stream_done`. (req 9)
+9. Retain `oldData` on `stream_reset`; clear-and-rebuild; fan out
+   `onReset` to consumers. (req 9)
 10. Operators as separate node classes; `range` returns
     `FilteredObservable`. (req 9, 10)
 11. Recoverable errors; `closed` (explicit `kill()`/destruction)
