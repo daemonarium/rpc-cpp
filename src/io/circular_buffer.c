@@ -291,6 +291,32 @@ size_t circular_buffer_capacity(struct circular_buffer* buffer) {
   return buffer->data->size - HEADER_SIZE - 1;
 }
 
+void circular_buffer_linearize(struct circular_buffer* buffer) {
+  if(buffer == NULL || buffer->data == NULL) {
+    return;
+  }
+  size_t readable = circular_buffer_readable_bytes(buffer);
+  if(readable == 0) {
+    return;
+  }
+  if(circular_buffer_region_contiguous(buffer, 0, readable)) {
+    return;
+  }
+  char* tmp = malloc(readable);
+  if(tmp == NULL) {
+    return;
+  }
+  size_t n = circular_buffer_peek(buffer, 0, tmp, readable);
+  if(n != readable) {
+    free(tmp);
+    return;
+  }
+  buffer->data->read_offset = 0;
+  buffer->data->write_offset = 0;
+  circular_buffer_write(buffer, tmp, readable);
+  free(tmp);
+}
+
 void circular_buffer_clear(struct circular_buffer* buffer) {
   buffer->data->read_offset = 0;
   buffer->data->write_offset = 0;

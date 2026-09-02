@@ -136,6 +136,12 @@ size_t circular_buffer_capacity(struct circular_buffer *buffer);
 size_t circular_buffer_grow(struct circular_buffer *buffer, size_t size);
 
 /**
+ * If readable bytes wrap the ring, copy them into a single physical slice
+ * starting at offset 0. No-op when already contiguous.
+ */
+void circular_buffer_linearize(struct circular_buffer *buffer);
+
+/**
  * Resets the buffer and clears all data.
  *
  * @param buffer The buffer to reset.

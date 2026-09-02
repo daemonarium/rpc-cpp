@@ -92,7 +92,7 @@ namespace serialization {
         write_raw(value.data(), value.size());
       }
 
-      void write_binary(std::vector<std::uint8_t>&& value) {
+      void write_binary(const std::vector<std::uint8_t>&& value) {
         write_u32(static_cast<std::uint32_t>(value.size()));
         write_raw(value.data(), value.size());
       }
