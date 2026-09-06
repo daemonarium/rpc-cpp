@@ -1,10 +1,13 @@
 #pragma once
 
 #include <algorithm>
-#include <type_traits>
-#include <meta>
-#include "meta_expand.hpp"
+#include <concepts>
 #include <memory>
+#include <meta>
+#include <string>
+#include <type_traits>
+#include <vector>
+#include "meta_expand.hpp"
 
 namespace serialization {
 
@@ -93,7 +96,7 @@ namespace serialization {
 
   namespace member_annotations {
     struct read {
-      static auto annotation_ptr() {
+      static member_annotation_ptr annotation_ptr() {
         return std::make_shared<read_annotation>();
       }
     };
@@ -103,22 +106,24 @@ namespace serialization {
     return member_annotations::read{};
   }
 
-  template <std::meta::info dm>
-  std::vector<member_annotation_ptr> member_annotations_of() {  
-    /// convert annotationInfos to member_annotation_ptrs
-    std::vector<member_annotation_ptr> annotation_ptrs;
-    [:expand(std::meta::annotations_of(dm)):] >> [&]<auto annotationInfo> {      
-      constexpr auto annotationType = std::meta::type_of(annotationInfo);
-      if constexpr (std::meta::parent_of(annotationType) == ^^serialization::member_annotations) { 
-        if constexpr (std::meta::type_of(annotationInfo) == ^^serialization::member_annotations::read) {
-          annotation_ptrs.push_back(std::make_shared<read_annotation>());
-        }
-        /// TODO: create a generic function to convert annotationInfos to member_annotation_ptrs, or some hack for annotations
-        //const auto annotationStruct = std::meta::extract(annotationInfo);
-        //annotations.push_back(annotationStruct.annotation_ptr());            
+  template <std::meta::info entity, typename Ptr>
+  std::vector<Ptr> annotations_of() {
+    std::vector<Ptr> out;
+    [:expand(std::meta::annotations_of(entity)):] >> [&]<auto annotationInfo> {
+      using Tag = typename [:std::meta::type_of(annotationInfo):];
+      if constexpr (requires(Tag t) {
+        { t.annotation_ptr() } -> std::convertible_to<Ptr>;
+      }) {
+        Tag tag = std::meta::extract<Tag>(annotationInfo);
+        out.push_back(tag.annotation_ptr());
       }
     };
-    return annotation_ptrs;    
+    return out;
+  }
+
+  template <std::meta::info dm>
+  std::vector<member_annotation_ptr> member_annotations_of() {
+    return annotations_of<dm, member_annotation_ptr>();
   }
 
   static consteval auto serialization_annotations_of(std::meta::info dm) {

@@ -467,6 +467,7 @@ namespace serialization {
       );
       type->type_index_ = std::type_index(typeid(T));
       registry.register_type(type);
+      type->annotations = annotations_of<^^T, type_annotation_ptr>();
       //describe_members<T, T, R>(type, value, registry); 
 
       [:expand(std::meta::bases_of(^^T, std::meta::access_context::unchecked())):] >> [&]<std::meta::info base> {
@@ -479,7 +480,7 @@ namespace serialization {
           type_description::member m = type_description::member(
             std::string(memberName),
             create(value.[:dm:], registry),
-            member_annotations_of<dm>()
+            annotations_of<dm, member_annotation_ptr>()
           );
           type->members.push_back(m);    
         }
@@ -499,7 +500,7 @@ namespace serialization {
           registry.register_type(method_type);
           register_parameters_and_return<member>(registry, method_type);
           
-          auto annotations = member_annotations_of<member>();
+          auto annotations = annotations_of<member, member_annotation_ptr>();
           type->members.push_back(type_description::member(full_name, method_type, annotations ));
         }
       };
@@ -554,7 +555,7 @@ namespace serialization {
               std::make_shared<type_description>(full_name, non_static_rpc_callable ? type_description::Kind::Method : type_description::Kind::Function);
             registry.register_type(method_type);
             register_parameters_and_return<member>(registry, method_type);
-            type->members.push_back(type_description::member(full_name, method_type, member_annotations_of<member>()));
+            type->members.push_back(type_description::member(full_name, method_type, annotations_of<member, member_annotation_ptr>()));
           }
         };
       }

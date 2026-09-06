@@ -28,12 +28,14 @@
 
 namespace serialization {
 
+  template <typename... Extra>
   inline std::string serialize_type_registry_blob(type_registry& registry) {
     std::ostringstream output_stream;
     stream_writer writer(output_stream);
     writer.write_u8(pack_serialization_format_envelope(registry.data_format()));
     writer.register_serialize_typed_function<type_description>();
     writer.register_serialize_typed_function<read_annotation>();
+    (writer.register_serialize_typed_function<Extra>(), ...);
     serialize(writer, registry);
     writer.write_rest();
     return output_stream.str();
@@ -49,6 +51,7 @@ namespace serialization {
     return bytes.size();
   }
 
+  template <typename... Extra>
   inline void deserialize_type_registry_blob(std::string_view bytes, type_registry& registry) {
     if(bytes.empty()) {
       throw std::runtime_error("type_registry blob: empty");
@@ -63,12 +66,15 @@ namespace serialization {
     std::istringstream input_stream(std::string(bytes.data() + offset, bytes.size() - offset), std::ios::binary);
     stream_reader reader(input_stream);
     reader.register_deserialize_typed_function<type_description>();
+    reader.register_deserialize_typed_function<read_annotation>();
+    (reader.register_deserialize_typed_function<Extra>(), ...);
     deserialize(reader, registry);
     reader.read_rest();
   }
 
+  template <typename... Extra>
   inline void deserialize_type_registry_blob(const std::vector<std::uint8_t>& bytes, type_registry& registry) {
-    deserialize_type_registry_blob(
+    deserialize_type_registry_blob<Extra...>(
       std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()),
       registry
     );
