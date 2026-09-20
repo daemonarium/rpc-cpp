@@ -33,7 +33,9 @@ extern "C" void waos_socket_output_drain(int socket) {
 }
 
 extern "C" void start() {
-  sockets_init(3);
+  // Extra slots so modules can socket_open(3+) without sockets_table_resize
+  // after the USER server is constructed (resize used to dangle socket_info*).
+  sockets_init(8);
   struct socket_options socket_options = {
     .input_buffer_size = 1024,
     .output_buffer_size = 1024,

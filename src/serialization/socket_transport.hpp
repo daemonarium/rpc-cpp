@@ -41,17 +41,17 @@ namespace serialization {
   class socket_c_transport {
     public:
       explicit socket_c_transport(std::uint32_t socket_id)
-        : socket_id_(socket_id),
-          socket_(get_socket_info(socket_id)) {}
+        : socket_id_(socket_id) {}
 
-      circular_buffer& input_buffer() { return socket_->input_buffer; }
-      circular_buffer& output_buffer() { return socket_->output_buffer; }
+      // Look up by id on each call. socket_open() may sockets_table_resize(),
+      // which reallocates the table and invalidates cached socket_info*.
+      circular_buffer& input_buffer() { return get_socket_info(socket_id_)->input_buffer; }
+      circular_buffer& output_buffer() { return get_socket_info(socket_id_)->output_buffer; }
       void flush() { waos_socket_flush(socket_id_); }
       void drain() { waos_socket_input_drain(socket_id_); }
 
     private:
       std::uint32_t socket_id_;
-      struct socket_info* socket_;
   };
 
   // native_process-owned circular_buffer pair.
