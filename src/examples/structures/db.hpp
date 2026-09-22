@@ -112,6 +112,7 @@ namespace waos {
         return serialization::promise<void>::resolved();
       }
 
+      [[=serialization::streamable()]]
       static std::shared_ptr<serialization::promise<void>> start_scan(
           stream_handle stream, db_scan_query query) {
         return serialization::promise<void>::resolved();

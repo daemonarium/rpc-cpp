@@ -35,6 +35,8 @@ namespace serialization {
     writer.write_u8(pack_serialization_format_envelope(registry.data_format()));
     writer.register_serialize_typed_function<type_description>();
     writer.register_serialize_typed_function<read_annotation>();
+    writer.register_serialize_typed_function<observable_annotation>();
+    writer.register_serialize_typed_function<streamable_annotation>();
     (writer.register_serialize_typed_function<Extra>(), ...);
     serialize(writer, registry);
     writer.write_rest();
@@ -67,6 +69,8 @@ namespace serialization {
     stream_reader reader(input_stream);
     reader.register_deserialize_typed_function<type_description>();
     reader.register_deserialize_typed_function<read_annotation>();
+    reader.register_deserialize_typed_function<observable_annotation>();
+    reader.register_deserialize_typed_function<streamable_annotation>();
     (reader.register_deserialize_typed_function<Extra>(), ...);
     deserialize(reader, registry);
     reader.read_rest();

@@ -93,6 +93,22 @@ namespace serialization {
 
   using read_annotation_ptr = std::shared_ptr<read_annotation>;
 
+  class [[=serialization::dynamic()]] observable_annotation : public member_annotation {
+    public:
+      virtual ~observable_annotation() {}
+      virtual std::string to_string() const override { return "[[=observable]"; }
+  };
+
+  using observable_annotation_ptr = std::shared_ptr<observable_annotation>;
+
+  class [[=serialization::dynamic()]] streamable_annotation : public member_annotation {
+    public:
+      virtual ~streamable_annotation() {}
+      virtual std::string to_string() const override { return "[[=streamable]"; }
+  };
+
+  using streamable_annotation_ptr = std::shared_ptr<streamable_annotation>;
+
 
   namespace member_annotations {
     struct read {
@@ -100,10 +116,46 @@ namespace serialization {
         return std::make_shared<read_annotation>();
       }
     };
+
+    struct observable {
+      static member_annotation_ptr annotation_ptr() {
+        return std::make_shared<observable_annotation>();
+      }
+    };
+
+    struct streamable {
+      static member_annotation_ptr annotation_ptr() {
+        return std::make_shared<streamable_annotation>();
+      }
+    };
   }
 
   static consteval auto read() {
     return member_annotations::read{};
+  }
+
+  static consteval auto observable() {
+    return member_annotations::observable{};
+  }
+
+  static consteval auto streamable() {
+    return member_annotations::streamable{};
+  }
+
+  static consteval bool is_observable(auto&& member) {
+    auto annotations = std::meta::annotations_of(member);
+    auto it = std::find_if(annotations.begin(), annotations.end(), [&](auto&& annotation) {
+      return std::meta::type_of(annotation) == ^^serialization::member_annotations::observable;
+    });
+    return it != annotations.end();
+  }
+
+  static consteval bool is_streamable(auto&& member) {
+    auto annotations = std::meta::annotations_of(member);
+    auto it = std::find_if(annotations.begin(), annotations.end(), [&](auto&& annotation) {
+      return std::meta::type_of(annotation) == ^^serialization::member_annotations::streamable;
+    });
+    return it != annotations.end();
   }
 
   template <std::meta::info entity, typename Ptr>

@@ -18,6 +18,8 @@ extern "C" size_t rpc_description(std::uint32_t socket, char** buffer) {
   // channel). Prefer returning 0 over propagating into the host.
   try {
     serialization::type_description::create(serialization::read_annotation(), registry);
+    serialization::type_description::create(serialization::observable_annotation(), registry);
+    serialization::type_description::create(serialization::streamable_annotation(), registry);
     return serialization::serialize_type_registry_blob_malloc(registry, buffer);
   } catch(...) {
     return 0;
