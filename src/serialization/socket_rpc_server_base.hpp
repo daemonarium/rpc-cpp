@@ -81,13 +81,17 @@ namespace serialization {
 
     protected:
       void handle_rpc_request(rpc_request& req, size_t payload_size) {
-        if(req.function_id >= this->functions_.size()) {
-          send_error(req.request_id, std::runtime_error("Function not found"));
-          return;
+        try {
+          if(req.function_id >= this->functions_.size()) {
+            send_error(req.request_id, std::runtime_error("Function not found"));
+            return;
+          }
+          this->functions_[req.function_id](channel_.reader(), channel_.writer(), req.request_id);
+        } catch(const std::exception& e) {
+          send_error(req.request_id, e);
+        } catch(...) {
+          send_error(req.request_id, std::runtime_error("uncaught exception in RPC handler"));
         }
-        // The reader is positioned at the payload (serialized arguments).
-        // functions_[id] reads args from reader, then calls process_call.
-        this->functions_[req.function_id](channel_.reader(), channel_.writer(), req.request_id);
       }
 
       void send_response(uint64_t request_id) {

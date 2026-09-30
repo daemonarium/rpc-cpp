@@ -118,9 +118,16 @@ namespace waos {
         return serialization::promise<void>::resolved();
       }
 
-      // Stub kept for type registration / older clients. The native DB
-      // process does not register this RPC; cancel is stream_cancel.
       static std::shared_ptr<serialization::promise<void>> cancel_scan(std::uint64_t stream_id) {
+        return serialization::promise<void>::resolved();
+      }
+
+      // Register a retention rule for a key prefix: compaction drops entries
+      // under `prefix` with timestamp < `min_ts`. Idempotent; re-calling with
+      // the same prefix replaces the rule. `min_ts = UINT64_MAX` => drop all
+      // (table delete). kv-storage-mem sweeps immediately.
+      static std::shared_ptr<serialization::promise<void>> mark_prefix_min_ts(
+          binary prefix, std::uint64_t min_ts) {
         return serialization::promise<void>::resolved();
       }
   };

@@ -30,7 +30,12 @@ namespace socket_handlers {
       [socket_id](const socket_handler& h) { return h.socket_id == socket_id; });
     
     if(it != handlers_.end() && it->data_handler) {
-      it->data_handler();
+      try {
+        it->data_handler();
+      } catch(...) {
+        // Framing already skipped the bad message. Do not propagate into the
+        // WASM/JS boundary (WebAssembly.Exception desyncs in-flight RPCs).
+      }
     }
   }
 

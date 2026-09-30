@@ -110,7 +110,13 @@ namespace serialization {
         try {
           Rt result = function();
           result->handle([this, request_id, p]() {
-            derived().send_response(request_id);
+            try {
+              derived().send_response(request_id);
+            } catch(const std::exception& e) {
+              derived().send_error(request_id, e);
+            } catch(...) {
+              derived().send_error(request_id, std::runtime_error("uncaught exception sending RPC response"));
+            }
             p->resolve();
           }, [this, request_id, p](std::exception_ptr exception) {
             try {
