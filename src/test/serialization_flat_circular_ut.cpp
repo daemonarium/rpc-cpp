@@ -55,6 +55,7 @@ namespace {
   std::string flat_bytes_shared(const std::shared_ptr<T>& value) {
     std::ostringstream os;
     flat_stream_writer w(os);
+    w.template register_serialize_typed_function<T>();
     if(!value) {
       w.write_u32(0); // sentinel only — null root
       return os.str();
@@ -77,6 +78,7 @@ namespace {
   std::shared_ptr<T> decode_circular_shared(struct circular_buffer* cb, size_t len) {
     circular_flat_source src(cb);
     flat_buffer_reader<circular_flat_source> r(src);
+    r.template register_deserialize_typed_function<T>();
     std::uint32_t root_encoded_size = 0;
     r.read_u32(root_encoded_size); // consume root prefix (or sentinel if null)
     if(root_encoded_size == 0) {
@@ -422,8 +424,8 @@ int main() {
       expect(eq(friends.size(), std::size_t{2}));
       expect(friends[0] != nullptr);
       expect(friends[1] != nullptr);
-      expect(eq(std::string(friends[0]->get<^^Person::name>()), std::string{"Friend"}));
-      expect(friends[1].get() == root.get());
+      expect(eq(std::string(friends[0].get<Person>()->get<^^Person::name>()), std::string{"Friend"}));
+      expect(friends[1].get<Person>().get() == root.get());
       if(!wrap) {
         flat_string name = root->get<^^Person::name>();
         expect(!name.owns());
@@ -457,8 +459,8 @@ int main() {
         auto friends = root->get<^^Person::friends>();
         expect(eq(friends.size(), std::size_t{1}));
         expect(friends[0] != nullptr);
-        expect(eq(std::string(friends[0]->get<^^Person::name>()), std::string{"B"}));
-        expect(friends[0]->get<^^Person::friends>().size() == 0_u);
+        expect(eq(std::string(friends[0].get<Person>()->get<^^Person::name>()), std::string{"B"}));
+        expect(friends[0].get<Person>()->get<^^Person::friends>().size() == 0_u);
         circular_buffer_destroy(cb);
       }
     }
@@ -507,10 +509,10 @@ int main() {
       auto friends = root->get<^^Person::friends>();
       expect(eq(friends.size(), std::size_t{1}));
       expect(friends[0] != nullptr);
-      expect(eq(std::string(friends[0]->get<^^Person::name>()), std::string{"B"}));
-      auto back = friends[0]->get<^^Person::friends>();
+      expect(eq(std::string(friends[0].get<Person>()->get<^^Person::name>()), std::string{"B"}));
+      auto back = friends[0].get<Person>()->get<^^Person::friends>();
       expect(eq(back.size(), std::size_t{1}));
-      expect(back[0].get() == root.get());
+      expect(back[0].get<Person>().get() == root.get());
       circular_buffer_destroy(cb);
     }
   };

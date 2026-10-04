@@ -106,13 +106,9 @@ namespace serialization {
       // -----------------------------------------------------------------
       template <typename T>
       void read_typed(std::shared_ptr<T>& data) {
-        std::uint32_t index = 0;
-        read_u32(index);
-        if(index >= deserialize_typed_functions_.size()) {
-          throw std::runtime_error("typed index out of range");
-        }
-        void* ptr = &data;
-        deserialize_typed_functions_[index](ptr);
+        std::shared_ptr<void> slot;
+        read_typed_slot(slot);
+        data = std::static_pointer_cast<T>(slot);
       }
 
       void read_typed(std::weak_ptr<void>& data) {
@@ -165,7 +161,7 @@ namespace serialization {
       }
 
       void register_deserialize_typed_function(std::type_index type,
-          std::function<void(void*)> deserialize_fn) {
+          std::function<void(std::shared_ptr<void>&)> deserialize_fn) {
         typed_indexes_[type] = deserialize_typed_functions_.size();
         deserialize_typed_functions_.push_back(std::move(deserialize_fn));
       }
@@ -173,11 +169,10 @@ namespace serialization {
       template <typename T>
       void register_deserialize_typed_function() {
         auto type = std::type_index(typeid(T));
-        register_deserialize_typed_function(type, [this](void* ptr) {
-          std::shared_ptr<T>& shared = *((std::shared_ptr<T>*)ptr);
-          std::shared_ptr<T> data = std::make_shared<T>();
+        register_deserialize_typed_function(type, [this](std::shared_ptr<void>& slot) {
+          auto data = std::make_shared<T>();
           deserialize(this->derived(), *data);
-          shared = data;
+          slot = std::move(data);
         });
       }
 
@@ -205,12 +200,13 @@ namespace serialization {
         read_pointers_.push_back(std::move(value));
       }
 
+      // Deferred shared_ptr bodies carry a u32 type index (see write_rest).
+      // Dispatch builds the concrete type; the caller static_pointer_casts
+      // into the field's static type.
       template <typename T>
       ReadLater make_shared_read_later() {
         return [this](std::shared_ptr<void>& data) {
-          auto typed = std::make_shared<T>();
-          deserialize(this->derived(), *typed);
-          data = typed;
+          read_typed_slot(data);
         };
       }
 
@@ -276,7 +272,7 @@ namespace serialization {
       std::vector<std::pair<std::vector<AssignAfterRead>, ReadLater>> read_later_;
       bool skip_pointers_ = false;
 
-      std::vector<std::function<void(void*)>> deserialize_typed_functions_;
+      std::vector<std::function<void(std::shared_ptr<void>&)>> deserialize_typed_functions_;
       std::unordered_map<std::type_index, size_t> typed_indexes_;
 
       std::vector<std::function<void(void*)>> deserialize_message_functions_;
@@ -286,6 +282,15 @@ namespace serialization {
       std::unordered_map<std::type_index, size_t> exception_read_indexes_;
 
     private:
+      void read_typed_slot(std::shared_ptr<void>& slot) {
+        std::uint32_t index = 0;
+        derived().read_u32(index);
+        if(index >= deserialize_typed_functions_.size()) {
+          throw std::runtime_error("flat read_typed: type index out of range");
+        }
+        deserialize_typed_functions_[index](slot);
+      }
+
       template <typename T>
       T read_le_value() {
         std::uint8_t buf[sizeof(T)];

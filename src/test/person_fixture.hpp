@@ -204,6 +204,7 @@ inline std::string encode_flat(const T& value) {
 inline std::string encode_flat_shared(const std::shared_ptr<Person>& value) {
   std::ostringstream os;
   serialization::flat_stream_writer w(os);
+  w.register_serialize_typed_function<Person>();
   if(!value) {
     w.write_u32(0);
     return os.str();
@@ -223,6 +224,7 @@ inline std::string encode_flat_shared(const std::shared_ptr<Person>& value) {
 inline std::shared_ptr<Person> decode_flat_shared(const std::string& bytes) {
   std::istringstream is(bytes);
   serialization::flat_stream_reader r(is);
+  r.register_deserialize_typed_function<Person>();
   std::uint32_t root_encoded_size = 0;
   r.read_u32(root_encoded_size);
   if(root_encoded_size == 0) {

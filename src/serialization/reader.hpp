@@ -71,9 +71,9 @@ namespace serialization {
 
       /*
       * Build the deferred-deserialization callback for a shared_ptr field.
-      * Default throws — concrete readers override: compressed readers use
-      * read_typed (polymorphic, reads type index); flat readers deserialize
-      * the pointee directly (homogeneous graph, no per-frame type index).
+      * Default throws — concrete readers override. Compressed and flat both
+      * read a type index and dispatch (polymorphic). Flat's index is a u32
+      * inside each deferred sub-frame; compressed's is a uvarint.
       */
       template <typename T>
       ReadLater make_shared_read_later() {

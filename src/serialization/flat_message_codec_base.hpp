@@ -35,6 +35,10 @@ namespace serialization {
     : public message_codec_base<Derived,
         flat_buffer_reader<circular_flat_source>, flat_circular_buffer_writer> {
     public:
+      // Materialized flat has no in-place factory table. flat_zero_copy overrides.
+      template <typename T>
+      void register_flat_view_factory() {}
+
       // Read type index (u32 LE) and consume the root frame's per-frame size
       // prefix (encoded_size_0). The materialized reader reads fields
       // sequentially via enter_frame/exit_frame, so the size itself is not

@@ -157,7 +157,10 @@ namespace serialization {
           throw std::runtime_error("Type not registered");
         }
         write_u32(static_cast<std::uint32_t>(it->second));
-        serialize_typed_functions_[it->second](&data);
+        // Erase to shared_ptr<void> so a base-typed slot can dispatch to the
+        // derived registration (typeid is the dynamic type).
+        std::shared_ptr<void> erased = data;
+        serialize_typed_functions_[it->second](&erased);
       }
 
       template <typename T>
@@ -200,7 +203,8 @@ namespace serialization {
       void register_serialize_typed_function() {
         auto type = std::type_index(typeid(T));
         register_serialize_typed_function(type, [this](void* ptr) {
-          std::shared_ptr<T> data = *((std::shared_ptr<T>*)ptr);
+          auto erased = *static_cast<std::shared_ptr<void>*>(ptr);
+          auto data = std::static_pointer_cast<T>(erased);
           serialize(this->derived(), *data);
         });
       }
@@ -227,9 +231,13 @@ namespace serialization {
         written_pointers_.push_back(std::move(value));
       }
 
+      // Deferred shared_ptr bodies are polymorphic: the callback writes a u32
+      // type index (write_typed) then the concrete body. write_rest wraps that
+      // pair in the per-frame size prefix, so each sub-frame is
+      // [encoded_size][type index][body].
       template <typename T>
       WriteLater make_shared_write_later(std::shared_ptr<T> value) {
-        return [value, this]() { serialize(this->derived(), *value); };
+        return [value, this]() { write_typed(value); };
       }
 
       void write_rest() {

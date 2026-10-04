@@ -17,7 +17,7 @@ Powiązane: [README.md](README.md), [compressed-format.md](compressed-format.md)
 | Max wydajność odczytu | fixed-width LE, sparse indeks checkpointów, `flat_view` / in-place |
 | Dobra wydajność zapisu | jeden przebieg: payload, na końcu ramki trailer |
 | Random access | tak, w ciągłym buforze / wycinku ramki |
-| Grafy / cykle `shared_ptr` | tak — ten sam protokół `write_pointer` / `write_rest` co compressed; delta = **i32 LE** |
+| Grafy / cykle `shared_ptr` | tak, w tym **polimorficzne** — `write_pointer` / `write_rest`; delta = **i32 LE**; każda odroczona sub-rama ma **type index u32 LE** |
 | Ewolucja schematu | **poza scope** |
 | Walidacja / safety | nie jest celem |
 | Alignment | nie wymagane |
@@ -97,25 +97,58 @@ Jak compressed:
 1. W miejscu: `i32` delta.
 2. Ciała odroczone → `write_rest()` (kolejne flat-ramki + typed index u32 LE).
 3. Odczyt: `read_pointer` / `read_rest`.
-4. `flat_view`: `get` na `shared_ptr<U>` → `shared_ptr<flat_view<U>>` (wspólna tabela identity).
+4. `flat_view`: `get` na `shared_ptr<U>` zwraca `flat_polymorphic_view` (`is_type<V>()` / `get<V>()` / `get_type()`). `get<V>()` to `shared_ptr<flat_view<V>>` albo throw przy złym typie. Identity węzła jest wspólna (ta sama delta → ten sam widok).
+
+### Polimorfizm grafów
+
+Każde odroczone ciało w `write_rest` to `write_typed`: **u32 LE** indeksu typu, potem ramka konkretnego typu. Root wiadomości **nie** dostaje per-frame type index — jego typ jest już w nagłówku wiadomości.
+
+Rejestracja (ta sama kolejność po obu stronach, indeks = kolejność):
+
+```cpp
+codec.register_dynamic_type<Derived>();
+// writer: register_serialize_typed_function<Derived>()
+// reader: register_deserialize_typed_function<Derived>()
+// flat_zero_copy: ta sama kolejność w flat_view_factory_registry
+```
+
+`FLAT_WIRE_VERSION` = 2. Framing socketu nie ma osobnego bajtu wersji; peer ze starszym grafem (v1, bez type index) trzeba odrzucić przez `require_flat_wire_version` zanim wymienicie graf.
+
+**Materialized.** `read_rest` czyta `encoded_size`, potem type index i buduje `shared_ptr<Actual>` przez `deserialize_typed_functions_`. Slot jest `shared_ptr<void>`; pole `shared_ptr<Base>` dostaje `static_pointer_cast`. Typ bazowy musi być polimorficzny (`typeid` dynamiczny), dziedziczenie pojedyncze.
+
+**In-place.** `flat_root_shared_on_session` buduje pulę przy parsowaniu prefiksów. Ramka 0 to `flat_view<Root>`. Ramki 1+ czytają type index i wołają fabrykę `flat_view<Actual>`. `bind_pointers` nie wymaga, żeby typ pola równał się typowi puli. Dostęp do pola:
+
+```cpp
+auto child = root->get<^^Holder::child>();
+if(child.is_type<Circle>()) {
+  auto view = child.get<Circle>();
+}
+```
+
+`get<V>()` wymaga dokładnego `typeid` (nie wycinka bazowego). Pusty wskaźnik: `!child`, `get<V>()` zwraca `nullptr` i nie rzuca.
+
+**Widok bazowy.** `flat_view<Base>` na bajtach pochodnej działa tylko gdy baza nie ma pól variable (`variable_count == 0`, trailer nie jest parsowany). Baza z polami variable nie da się poprawnie złożyć na ramce pochodnej — to nie jest wspierane.
 
 ### Wire format wiadomości top-level (RPC / message channel)
 
-Wiadomość top-level na sockecie używa per-frame size prefix + 0 sentinel (zamiast typed index w `write_rest`):
+Wiadomość top-level na sockecie używa per-frame size prefix + 0 sentinel. Type index wiadomości jest w nagłówku; type index sub-ramki jest wewnątrz jej ciała.
 
 ```text
-[length prefix 4B][type index 4B u32 LE]
-                 [encoded_size_0 = N0+1 4B u32 LE][frame 0 = root T N0 B]
-                 [encoded_size_1 = N1+1][frame 1 sub N1 B] ...
+[length prefix 4B][type index 4B u32 LE]                          // typ wiadomości
+                 [encoded_size_0 = N0+1 4B][frame 0 = root T N0 B] // root: bez per-frame type index
+                 [encoded_size_1 = N1+1 4B][type_index_1 4B][frame 1 = sub N1 B]
+                 [encoded_size_2 = N2+1 4B][type_index_2 4B][frame 2 = sub N2 B]
+                 ...
                  [0 sentinel 4B]
                  [payload P B]
 ```
 
 - `encoded_size_i = real_size_i + 1` (zero = sentinel, pusta ramka → encoded 1).
+- Dla sub-ramki `real_size_i` = 4 B type index + `N_i` B ciała.
 - Root jest deref-serializowany (`serialize(w, *value)`, nie `write_pointer`) i pre-rejestrowany w `written_pointers_` — self-ref roota (delta=-1) używa back-reference.
-- Sub-frame w grafie: `[encoded_size_i][frame i]` (brak type index, graf homogeniczny T). `write_rest` opakowuje każdy sub-frame per-frame prefixem.
-- `payload_size = msg_len - cursor` po sentinel — dispatch walkuje prefiksy do sentinel, `reader.skip` do payload.
-- Compressed bez zmian: `[index uvarint64][serialize][write_rest][payload]`.
+- Sub-frame: type index u32 LE, potem ramka actual type. Dispatch: materialized przez `deserialize_typed_functions_`, in-place przez `flat_view_factory_registry` (`register_dynamic_type`).
+- `payload_size = msg_len - cursor` po sentinel — dispatch walkuje prefiksy do sentinel (rozmiar obejmuje type index), `reader.skip` do payload.
+- Compressed: type index to **uvarint**, bez per-frame size prefix i bez trailera. Patrz [compressed-format.md](compressed-format.md).
 
 ---
 

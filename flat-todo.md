@@ -85,3 +85,4 @@ Szczegóły layoutu: [flat-format.md](flat-format.md).
 
 - [ ] `view.name()` codegen / injection
 - [x] Dalsza deduplikacja flat writer/reader (`begin_frame`/`end_frame`/`write_typed`/`register_*` do CRTP bazy) — Krok 5g: `flat_writer_base`/`flat_reader_base` hostują skalary, string/binary/length, map, typed/exception/message + tabele, frame management (writer), shared_ptr graph; concrete klasy zostawiają tylko medium-specific hooks (`write_raw`/`read_raw`, `current_pos`, `poke_u32`) i reader frame management (`Frame`/`frames_`/`enter_frame`/`exit_frame`/`save_offset`/`read_map`). Nowy test `flat_writer_reader_base_ut` (8 testów cross-parity).
+- [x] Polimorfizm grafów flat — `write_rest` emituje type index u32 LE na każdą odroczoną sub-ramę (`FLAT_WIRE_VERSION` 2), `flat_view_factory_registry` buduje `flat_view<Actual>`, pola `shared_ptr` to `flat_polymorphic_view` (`is_type` / `get` / `get_type`). Test: `flat_polymorphism_ut`.

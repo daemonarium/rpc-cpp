@@ -87,9 +87,9 @@ namespace serialization {
 
       /*
       * Build the deferred-serialization callback for a shared_ptr field.
-      * Default throws — concrete writers override: compressed writers use
-      * write_typed (polymorphic, with type index); flat writers serialize
-      * the pointee directly (homogeneous graph, no type index per sub-frame).
+      * Default throws — concrete writers override. Compressed and flat both
+      * use write_typed (polymorphic, with a type index). Flat puts that index
+      * inside each deferred sub-frame; compressed writes it as a uvarint.
       */
       template <typename T>
       WriteLater make_shared_write_later(std::shared_ptr<T> value) {

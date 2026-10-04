@@ -177,7 +177,9 @@ Kolejność `register_serialize_typed_function<T>()` / deserialize **musi być i
 - Legacy RPC / transfer sekwencyjny (opt-in; domyślny wire → [flat-format.md](flat-format.md))
 - Logi, mały rozmiar na przewodzie
 - Klucze / rekordy sortowane bajtowo (float, i8) — albo rozważ [key-format.md](key-format.md)
-- Grafy z cyklami (`shared_ptr`)
+- Grafy z cyklami (`shared_ptr`), także polimorficzne
 - Gdy nie potrzeba odczytu w miejscu / random access do pól
+
+Flat też wspiera polimorficzne grafy (`shared_ptr` + type index). Różnica to układ: flat ma per-frame size prefix, trailer checkpointów i type index **u32 LE** w sub-ramce; compressed ma **uvarint** type index i nie ma trailera ani prefiksu rozmiaru ramki. Patrz [flat-format.md](flat-format.md).
 
 Domyślny RPC procesów i hot-path → [flat-format.md](flat-format.md).

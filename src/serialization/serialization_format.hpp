@@ -13,6 +13,19 @@ namespace serialization {
     key = 2,
   };
 
+  // Flat shared_ptr graph layout.
+  // 1 = homogeneous sub-frames (no per-frame type index). No longer written.
+  // 2 = each deferred sub-frame is [encoded_size u32][type index u32][body].
+  // Socket framing has no separate version byte; peers must both be version 2.
+  // Callers that do exchange a version reject anything older.
+  inline constexpr std::uint32_t FLAT_WIRE_VERSION = 2;
+
+  inline void require_flat_wire_version(std::uint32_t peer_version) {
+    if(peer_version < FLAT_WIRE_VERSION) {
+      throw std::runtime_error("unsupported_protocol_version");
+    }
+  }
+
   inline constexpr std::uint8_t SERIALIZATION_FORMAT_ENVELOPE = 0x80;
   inline constexpr std::uint8_t SERIALIZATION_FORMAT_RESERVED_MASK = 0x70;
   inline constexpr std::uint8_t SERIALIZATION_FORMAT_VALUE_MASK = 0x0f;

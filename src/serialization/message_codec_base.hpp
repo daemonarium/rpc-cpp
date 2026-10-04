@@ -85,6 +85,7 @@ namespace serialization {
       void register_dynamic_type() {
         derived().writer().template register_serialize_typed_function<T>();
         derived().reader().template register_deserialize_typed_function<T>();
+        derived().template register_flat_view_factory<T>();
       }
 
       // Register a message type: serialize fn on the writer + a dispatch

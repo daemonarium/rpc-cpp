@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -23,6 +24,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <typeindex>
 #include <unordered_map>
 #include <vector>
 
@@ -41,6 +43,106 @@ namespace serialization {
 
   template <class T>
   class flat_view;
+
+  class flat_session;
+
+  struct flat_pool_slot;
+
+  // One frame in an in-place graph. view is a flat_view<Actual>.
+  // bind runs that view's pointer walk; it is type-erased because sub-frames
+  // are not all flat_view<Root>.
+  struct flat_pool_slot {
+    std::shared_ptr<void> view;
+    std::type_index type = typeid(void);
+    std::function<void(const std::vector<flat_pool_slot>&, std::size_t)> bind;
+  };
+
+  // Type-erased flat_view reached through a shared_ptr field. get<V>() checks
+  // the dynamic type recorded when the pool was built (exact match).
+  class flat_polymorphic_view {
+    public:
+      flat_polymorphic_view() : type_(typeid(void)) {}
+
+      flat_polymorphic_view(std::shared_ptr<void> view, std::type_index type)
+        : view_(std::move(view)), type_(type) {}
+
+      explicit operator bool() const { return static_cast<bool>(view_); }
+      bool operator==(std::nullptr_t) const { return !view_; }
+      bool operator!=(std::nullptr_t) const { return static_cast<bool>(view_); }
+
+      std::type_index get_type() const { return type_; }
+
+      template <class V>
+      bool is_type() const {
+        return static_cast<bool>(view_) && type_ == std::type_index(typeid(V));
+      }
+
+      template <class V>
+      std::shared_ptr<flat_view<V>> get() const {
+        if(!view_) {
+          return nullptr;
+        }
+        if(type_ != std::type_index(typeid(V))) {
+          throw std::runtime_error("flat_polymorphic_view: type mismatch");
+        }
+        return std::static_pointer_cast<flat_view<V>>(view_);
+      }
+
+    private:
+      std::shared_ptr<void> view_;
+      std::type_index type_;
+  };
+
+  // Builds flat_view<Actual> for a wire type index. Register in the same
+  // order as register_serialize_typed_function / register_dynamic_type.
+  class flat_view_factory_registry {
+    public:
+      template <class T>
+      void register_type() {
+        auto type = std::type_index(typeid(T));
+        if(indexes_.find(type) != indexes_.end()) {
+          throw std::runtime_error("flat_view factory already registered");
+        }
+        indexes_[type] = factories_.size();
+        types_.push_back(type);
+        factories_.push_back([](std::shared_ptr<flat_session> session,
+            std::size_t start, std::size_t end) {
+          auto view = std::shared_ptr<flat_view<T>>(
+            new flat_view<T>(std::move(session), start, end));
+          flat_pool_slot slot;
+          slot.view = view;
+          slot.type = std::type_index(typeid(T));
+          slot.bind = [view](const std::vector<flat_pool_slot>& pool, std::size_t cur) {
+            view->bind_pointers(pool, cur);
+          };
+          return slot;
+        });
+      }
+
+      flat_pool_slot make(std::uint32_t index, std::shared_ptr<flat_session> session,
+          std::size_t start, std::size_t end) const {
+        if(index >= factories_.size()) {
+          throw std::runtime_error("flat_view factory index out of range");
+        }
+        return factories_[index](std::move(session), start, end);
+      }
+
+      std::type_index type_of(std::uint32_t index) const {
+        if(index >= types_.size()) {
+          throw std::runtime_error("flat_view factory index out of range");
+        }
+        return types_[index];
+      }
+
+      std::size_t size() const { return factories_.size(); }
+
+    private:
+      using Factory = std::function<flat_pool_slot(
+        std::shared_ptr<flat_session>, std::size_t, std::size_t)>;
+      std::vector<Factory> factories_;
+      std::vector<std::type_index> types_;
+      std::unordered_map<std::type_index, std::size_t> indexes_;
+  };
 
   template <class E>
   class flat_vector_view;
@@ -153,23 +255,22 @@ namespace serialization {
 
       bool is_circular() const { return kind_ == Kind::Circular; }
 
-      std::vector<std::shared_ptr<void>>& resolved() { return resolved_; }
+      std::vector<flat_pool_slot>& resolved() { return resolved_; }
 
-      void bind_pointer_at(std::size_t abs_offset, std::shared_ptr<void> view) {
-        pointer_at_[abs_offset] = std::move(view);
+      void bind_pointer_at(std::size_t abs_offset, std::shared_ptr<void> view, std::type_index type) {
+        pointer_at_[abs_offset] = flat_pool_slot{std::move(view), type};
       }
 
-      template <class T>
-      std::shared_ptr<flat_view<T>> pointer_at(std::size_t abs_offset) const {
+      flat_polymorphic_view pointer_at(std::size_t abs_offset) const {
         auto it = pointer_at_.find(abs_offset);
-        if(it == pointer_at_.end()) {
-          return nullptr;
+        if(it == pointer_at_.end() || !it->second.view) {
+          return {};
         }
-        return std::static_pointer_cast<flat_view<T>>(it->second);
+        return flat_polymorphic_view(it->second.view, it->second.type);
       }
 
-      // Resolve a pointer delta to a flat_view in the pool. Negative deltas
-      // are back-references into resolved_ (frames bound before the current
+      // Resolve a pointer delta to a pool slot. Negative deltas are
+      // back-references into resolved_ (frames bound before the current
       // frame). Positive deltas are forward references into the pool, indexed
       // relative to the current frame's position — mirroring the writer's
       // write_later_ queue semantics:
@@ -177,16 +278,15 @@ namespace serialization {
       //     delta=+m -> the (m-1)-th child = pool[m].
       //   - sub-frame (cur>=1) is the front of write_later_ during its own
       //     serialization, so delta=+m -> pool[cur + m - 1] (m=1 -> self).
-      template <class T>
-      std::shared_ptr<flat_view<T>> resolve_delta(std::int32_t delta,
-          std::vector<std::shared_ptr<flat_view<T>>>& pool, std::size_t cur) {
+      flat_pool_slot resolve_delta(std::int32_t delta,
+          const std::vector<flat_pool_slot>& pool, std::size_t cur) const {
         if(delta == 0) {
-          return nullptr;
+          return {};
         }
         if(delta < 0) {
           std::size_t index = static_cast<std::size_t>(
             static_cast<std::ptrdiff_t>(resolved_.size()) + delta);
-          return std::static_pointer_cast<flat_view<T>>(resolved_.at(index));
+          return resolved_.at(index);
         }
         std::size_t target = (cur == 0)
           ? static_cast<std::size_t>(delta)
@@ -194,7 +294,7 @@ namespace serialization {
         if(target >= pool.size()) {
           throw std::runtime_error("flat pointer pool exhausted");
         }
-        return std::static_pointer_cast<flat_view<T>>(pool[target]);
+        return pool[target];
       }
 
     private:
@@ -205,8 +305,8 @@ namespace serialization {
       span_flat_source span_;
       circular_flat_source circ_;
       std::size_t logical_len_ = 0;
-      std::vector<std::shared_ptr<void>> resolved_;
-      std::unordered_map<std::size_t, std::shared_ptr<void>> pointer_at_;
+      std::vector<flat_pool_slot> resolved_;
+      std::unordered_map<std::size_t, flat_pool_slot> pointer_at_;
   };
 
   namespace flat_detail {
@@ -286,8 +386,7 @@ namespace serialization {
           throw std::out_of_range("flat_vector_view index");
         }
         if constexpr (SharedPointer<E>) {
-          using U = typename E::element_type;
-          return session_->template pointer_at<U>(elem_start_ + i * 4);
+          return session_->pointer_at(elem_start_ + i * 4);
         } else if constexpr (is_flat_variable_v<E>) {
           std::size_t abs_begin = (i == 0) ? elem_start_ : (start_ + cps_[i - 1]);
           std::size_t abs_end = start_ + cps_[i];
@@ -322,8 +421,7 @@ namespace serialization {
     auto read_value_at(const std::shared_ptr<flat_session>& session, std::size_t abs,
         std::size_t abs_end) {
       if constexpr (SharedPointer<MT>) {
-        using U = typename MT::element_type;
-        return session->template pointer_at<U>(abs);
+        return session->pointer_at(abs);
       } else if constexpr (String<MT>) {
         std::uint8_t buf[4];
         session->peek(abs, buf, 4);
@@ -550,25 +648,22 @@ namespace serialization {
       // Used by flat_root_shared to bind pointer slots. cur is this frame's
       // index in the pool (0 for root), used to resolve forward-reference
       // deltas relative to the current frame.
-      template <class PoolT>
-      void bind_pointers(std::vector<std::shared_ptr<flat_view<PoolT>>>& pool, std::size_t cur) {
+      void bind_pointers(const std::vector<flat_pool_slot>& pool, std::size_t cur) {
         walk_base<T>([&]<auto dm> {
           if constexpr(!is_member_ignored(dm)) {
             using MT = typename [:std::meta::type_of(dm):];
             if constexpr (SharedPointer<MT>) {
-              using U = typename MT::element_type;
-              static_assert(std::is_same_v<U, PoolT>);
               std::size_t abs = field_abs_offset<dm>();
               std::uint8_t buf[4];
               session_->peek(abs, buf, 4);
               std::int32_t delta = flat_load_le<std::int32_t>(buf);
-              auto target = session_->template resolve_delta<PoolT>(delta, pool, cur);
-              session_->bind_pointer_at(abs, target);
+              auto target = session_->resolve_delta(delta, pool, cur);
+              if(target.view) {
+                session_->bind_pointer_at(abs, target.view, target.type);
+              }
             } else if constexpr (ContainerButNotString<MT> && !Binary<MT>) {
               using E = typename MT::value_type;
               if constexpr (SharedPointer<E>) {
-                using U = typename E::element_type;
-                static_assert(std::is_same_v<U, PoolT>);
                 auto vec_info = field_abs_and_end<dm>();
                 std::uint8_t lbuf[4];
                 session_->peek(vec_info.first, lbuf, 4);
@@ -578,8 +673,10 @@ namespace serialization {
                   std::uint8_t buf[4];
                   session_->peek(elem + i * 4, buf, 4);
                   std::int32_t delta = flat_load_le<std::int32_t>(buf);
-                  auto target = session_->template resolve_delta<PoolT>(delta, pool, cur);
-                  session_->bind_pointer_at(elem + i * 4, target);
+                  auto target = session_->resolve_delta(delta, pool, cur);
+                  if(target.view) {
+                    session_->bind_pointer_at(elem + i * 4, target.view, target.type);
+                  }
                 }
               }
             }
@@ -697,17 +794,19 @@ namespace serialization {
 
     // Build a flat_view graph over a session by walking per-frame size
     // prefixes. Wire layout starting at body_offset:
-    //   [encoded_size_0 = N0+1 4B u32 LE][frame 0 = root]
-    //   [encoded_size_1 = N1+1][frame 1 = sub] ...
+    //   [encoded_size_0 = N0+1 4B u32 LE][frame 0 = root T]
+    //   [encoded_size_i = Ni+1][type index u32][frame i = sub] ...
     //   [0 sentinel 4B][payload]
-    // encoded_size_i = real_size_i + 1 (0 = sentinel). Root is always frame 0.
-    // No measure_frame: each frame's extent is read directly from its prefix,
-    // enabling true zero-copy graph construction.
+    // encoded_size_i = real_size_i + 1 (0 = sentinel). Root has no per-frame
+    // type index. Sub-frames do: real_size includes the 4-byte index.
+    // factories == nullptr treats every sub-frame as T (homogeneous).
     template <class T>
     std::shared_ptr<flat_view<T>> flat_root_shared_on_session(
-        std::shared_ptr<flat_session> session, std::size_t body_offset, std::size_t message_len) {
-      std::vector<std::shared_ptr<flat_view<T>>> pool;
+        std::shared_ptr<flat_session> session, std::size_t body_offset, std::size_t message_len,
+        const flat_view_factory_registry* factories) {
+      std::vector<flat_pool_slot> pool;
       std::size_t cursor = body_offset;
+      bool root_frame = true;
       while(cursor + 4 <= message_len) {
         std::uint8_t sbuf[4];
         session->peek(cursor, sbuf, 4);
@@ -716,12 +815,45 @@ namespace serialization {
           break; // sentinel — frame list ends
         }
         std::uint32_t real_size = encoded_size - 1;
-        std::size_t frame_start = cursor + 4;
-        std::size_t frame_end = frame_start + real_size;
+        std::size_t frame_end = cursor + 4 + real_size;
         if(frame_end > message_len) {
           throw std::runtime_error("flat_root_shared: frame exceeds message");
         }
-        pool.push_back(std::shared_ptr<flat_view<T>>(new flat_view<T>(session, frame_start, frame_end)));
+        if(root_frame) {
+          auto view = std::shared_ptr<flat_view<T>>(
+            new flat_view<T>(session, cursor + 4, frame_end));
+          flat_pool_slot slot;
+          slot.view = view;
+          slot.type = std::type_index(typeid(T));
+          slot.bind = [view](const std::vector<flat_pool_slot>& frames, std::size_t cur) {
+            view->bind_pointers(frames, cur);
+          };
+          pool.push_back(std::move(slot));
+          root_frame = false;
+        } else {
+          if(real_size < 4) {
+            throw std::runtime_error("flat_root_shared: sub-frame missing type index");
+          }
+          std::uint8_t ibuf[4];
+          session->peek(cursor + 4, ibuf, 4);
+          std::uint32_t type_index = flat_load_le<std::uint32_t>(ibuf);
+          std::size_t body_start = cursor + 8;
+          std::size_t body_end = frame_end;
+          if(factories) {
+            pool.push_back(factories->make(type_index, session, body_start, body_end));
+          } else {
+            auto view = std::shared_ptr<flat_view<T>>(
+              new flat_view<T>(session, body_start, body_end));
+            flat_pool_slot slot;
+            slot.view = view;
+            slot.type = std::type_index(typeid(T));
+            slot.bind = [view](const std::vector<flat_pool_slot>& frames, std::size_t cur) {
+              view->bind_pointers(frames, cur);
+            };
+            pool.push_back(std::move(slot));
+            (void)type_index;
+          }
+        }
         cursor = frame_end;
       }
       if(pool.empty()) {
@@ -736,22 +868,38 @@ namespace serialization {
       // AFTER their body, so push them to resolved_ AFTER binding (so their
       // own back-refs see only prior frames). Forward-reference deltas are
       // resolved relative to the current frame's pool index (cur).
-      auto root = pool[0];
-      session->resolved().push_back(root);
-      root->bind_pointers(pool, 0);
+      auto root = std::static_pointer_cast<flat_view<T>>(pool[0].view);
+      session->resolved().push_back(pool[0]);
+      pool[0].bind(pool, 0);
       for(std::size_t i = 1; i < pool.size(); ++i) {
-        pool[i]->bind_pointers(pool, i);
+        if(!pool[i].bind) {
+          throw std::runtime_error("flat_root_shared: missing frame binder");
+        }
+        pool[i].bind(pool, i);
         session->resolved().push_back(pool[i]);
       }
 
       return root;
     }
 
-    // Back-compat overload: body_offset defaults to 0 (no type index prefix).
+    template <class T>
+    std::shared_ptr<flat_view<T>> flat_root_shared_on_session(
+        std::shared_ptr<flat_session> session, std::size_t body_offset, std::size_t message_len) {
+      return flat_root_shared_on_session<T>(session, body_offset, message_len, nullptr);
+    }
+
+    // Back-compat overload: body_offset defaults to 0 (no leading type-index prefix).
     template <class T>
     std::shared_ptr<flat_view<T>> flat_root_shared_on_session(
         std::shared_ptr<flat_session> session, std::size_t message_len) {
-      return flat_root_shared_on_session<T>(session, 0, message_len);
+      return flat_root_shared_on_session<T>(session, 0, message_len, nullptr);
+    }
+
+    template <class T>
+    std::shared_ptr<flat_view<T>> flat_root_shared_on_session(
+        std::shared_ptr<flat_session> session, std::size_t message_len,
+        const flat_view_factory_registry& factories) {
+      return flat_root_shared_on_session<T>(session, 0, message_len, &factories);
     }
 
   } // namespace flat_detail

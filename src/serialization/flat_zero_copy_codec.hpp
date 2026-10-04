@@ -32,7 +32,7 @@ namespace serialization {
   // flat_materialized_codec so the two are interoperable:
   //   [type index 4B u32 LE]
   //   [encoded_size_0 = N0+1 4B u32 LE][root T frame]
-  //   [encoded_size_1 = N1+1][sub-frame 1] ...
+  //   [encoded_size_i = Ni+1][type index u32][sub-frame i] ...
   //   [0 sentinel 4B]
   //   [payload P B]
   // encoded_size_i = real_size_i + 1 (0 = sentinel). dispatch walks the
@@ -62,6 +62,12 @@ namespace serialization {
           reader_(std::make_unique<flat_buffer_reader<circular_flat_source>>(circular_flat_source(input_buffer))),
           writer_(std::make_unique<flat_circular_buffer_writer>(output_buffer, 0)) {}
 
+      // Same order as register_serialize_typed_function (register_dynamic_type).
+      template <typename T>
+      void register_flat_view_factory() {
+        flat_view_factories_.template register_type<T>();
+      }
+
       template <typename T>
       std::function<void()> make_dispatch_handler() {
         return [this]() {
@@ -73,7 +79,7 @@ namespace serialization {
           // Walk per-frame prefixes to build the full shared_ptr graph (root
           // + all sub-frames) as flat_view objects — zero materialization.
           auto view = flat_detail::flat_root_shared_on_session<T>(
-            session, body_offset, this->current_msg_len_);
+            session, body_offset, this->current_msg_len_, &flat_view_factories_);
 
           // Position the reader over the payload (after the sentinel).
           // flat_root_shared_on_session walked prefixes+frames via session->peek
@@ -137,6 +143,7 @@ namespace serialization {
 
     private:
       struct circular_buffer* input_buffer_;
+      flat_view_factory_registry flat_view_factories_;
       std::unique_ptr<flat_buffer_reader<circular_flat_source>> reader_;
       std::unique_ptr<flat_circular_buffer_writer> writer_;
   };

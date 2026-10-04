@@ -31,6 +31,10 @@ namespace serialization {
         : reader_(std::make_unique<circular_buffer_reader>(input_buffer, 0)),
           writer_(std::make_unique<circular_buffer_writer>(output_buffer, 0)) {}
 
+      // Compressed has no flat_view. register_dynamic_type still calls this.
+      template <typename T>
+      void register_flat_view_factory() {}
+
       std::uint64_t read_type_index() {
         std::uint64_t index;
         reader_->read_u64(index);

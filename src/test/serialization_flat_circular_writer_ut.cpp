@@ -54,6 +54,7 @@ namespace {
   std::string encode_flat_stream_shared(const std::shared_ptr<T>& value) {
     std::ostringstream os;
     flat_stream_writer w(os);
+    w.template register_serialize_typed_function<T>();
     if(!value) {
       w.write_u32(0); // sentinel only — null root
       return os.str();
@@ -94,6 +95,7 @@ namespace {
   size_t write_flat_circular_shared(struct circular_buffer* cb, const std::shared_ptr<T>& value,
       size_t write_offset = 0) {
     flat_circular_buffer_writer w(cb, write_offset);
+    w.template register_serialize_typed_function<T>();
     if(!value) {
       w.write_u32(0); // sentinel only — null root
       circular_buffer_commit_write(cb, w.write_offset_);
@@ -234,8 +236,8 @@ int main() {
     expect(eq(std::string(root->get<^^Person::name>()), std::string{"Root"}));
     auto friends = root->get<^^Person::friends>();
     expect(eq(friends.size(), std::size_t{2}));
-    expect(eq(std::string(friends[0]->get<^^Person::name>()), std::string{"Friend"}));
-    expect(friends[1].get() == root.get());
+    expect(eq(std::string(friends[0].get<Person>()->get<^^Person::name>()), std::string{"Friend"}));
+    expect(friends[1].get<Person>().get() == root.get());
     circular_buffer_destroy(cb);
   };
 
@@ -260,7 +262,7 @@ int main() {
     expect(root != nullptr);
     expect(root->session()->storage() == nullptr);
     expect(eq(std::string(root->get<^^Person::name>()), std::string{"A"}));
-    expect(eq(std::string(root->get<^^Person::friends>()[0]->get<^^Person::name>()),
+    expect(eq(std::string(root->get<^^Person::friends>()[0].get<Person>()->get<^^Person::name>()),
       std::string{"B"}));
     circular_buffer_destroy(cb);
   };

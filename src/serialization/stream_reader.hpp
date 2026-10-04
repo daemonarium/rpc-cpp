@@ -176,9 +176,13 @@ namespace serialization {
       void read_typed(std::shared_ptr<T>& data) {
         debug("read_typed");
         std::uint32_t index = read_uvar_int_32();
-        void* ptr = &data;
         debug("  read_typed type %u", index);
-        deserialize_typed_functions_[index](ptr);
+        if(index >= deserialize_typed_functions_.size()) {
+          throw std::runtime_error("typed index out of range");
+        }
+        std::shared_ptr<void> slot;
+        deserialize_typed_functions_[index](&slot);
+        data = std::static_pointer_cast<T>(slot);
       }
 
       void read_typed(std::weak_ptr<void>& data) {
@@ -216,10 +220,10 @@ namespace serialization {
       void register_deserialize_typed_function() {
         auto type = std::type_index(typeid(T));        
         register_deserialize_typed_function(type, [&reader = *this](void* ptr) {
-          std::shared_ptr<T>& shared = *((std::shared_ptr<T>*)ptr);
-          std::shared_ptr<T> data = std::make_shared<T>();
+          auto& slot = *static_cast<std::shared_ptr<void>*>(ptr);
+          auto data = std::make_shared<T>();
           deserialize(reader, *data);
-          shared = data;
+          slot = std::move(data);
         });
       }
 

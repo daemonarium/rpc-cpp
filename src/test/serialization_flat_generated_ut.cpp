@@ -183,7 +183,7 @@ namespace {
     auto friends = view->get<^^Person::friends>();
     expect(eq(friends.size(), expected->friends.size()));
     for(std::size_t i = 0; i < expected->friends.size(); ++i) {
-      expect_person_graph_view(friends[i], expected->friends[i], seen);
+      expect_person_graph_view(friends[i].get<Person>(), expected->friends[i], seen);
     }
   }
 
@@ -236,6 +236,7 @@ int main() {
           force_near_seam(cb, bytes.size() / 3);
         }
         flat_circular_buffer_writer cw(cb, 0);
+        cw.register_serialize_typed_function<Person>();
         cw.mark_written_pointer(root);
         std::size_t size_offset = cw.write_offset_;
         cw.write_u32(0);
@@ -250,6 +251,7 @@ int main() {
 
         circular_flat_source src(cb);
         flat_buffer_reader<circular_flat_source> r(src);
+        r.register_deserialize_typed_function<Person>();
         std::uint32_t root_encoded_size = 0;
         r.read_u32(root_encoded_size);
         auto out = std::make_shared<Person>();

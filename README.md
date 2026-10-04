@@ -19,7 +19,7 @@ Ta sama warstwa `serialize` / `deserialize` i ten sam kontrakt `Writer` / `Reade
 | Liczby | varint, float sortowalny | fixed LE | varint / float jak compressed (w **data**) |
 | Odczyt | sekwencyjny | sekwencyjny + in-place | data do przodu + meta (długości) osobno |
 | Długości | przed stringiem / w streamie | u32 LE / trailer | **meta** na końcu bloba (`[data][meta][u8]`) |
-| Grafy / mapy | tak | tak | **nie** (throw) |
+| Grafy / cykle | tak (polimorficzne) | tak (polimorficzne) | **nie** (throw) |
 | Typowe użycie | legacy RPC / transfer (opt-in) | **domyślny RPC / procesy**, mmap, hot-path | klucze DB — `memcmp` bez length między polami |
 
 Szczegóły: **[compressed-format.md](compressed-format.md)**, **[flat-format.md](flat-format.md)**, **[key-format.md](key-format.md)**.

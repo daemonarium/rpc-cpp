@@ -107,6 +107,24 @@ namespace {
     std::shared_ptr<node> next;
   };
 
+  struct animal {
+    virtual ~animal() = default;
+    std::uint64_t kind = 0;
+  };
+
+  struct dog : animal {
+    std::uint64_t bones = 0;
+  };
+
+  struct cat : animal {
+    std::uint64_t lives = 0;
+  };
+
+  struct [[=serialization::message()]] kennel_msg {
+    std::shared_ptr<animal> pet;
+    std::shared_ptr<animal> other;
+  };
+
 }
 
 int main() {
@@ -350,5 +368,45 @@ int main() {
     expect(received_data == std::string("hello"));
     expect(received_payload_size == 8_u);
     expect(payload_value == 4242_u);
+  };
+
+  "flat zero-copy polymorphic dispatch"_test = [] {
+    codec_buffers env;
+    auto& codec = env.codec;
+    codec.register_message_type<kennel_msg>();
+    codec.register_dynamic_type<dog>();
+    codec.register_dynamic_type<cat>();
+
+    kennel_msg msg;
+    auto pet = std::make_shared<dog>();
+    pet->kind = 3;
+    pet->bones = 9;
+    auto other = std::make_shared<cat>();
+    other->kind = 4;
+    other->lives = 8;
+    msg.pet = pet;
+    msg.other = other;
+
+    bool received = false;
+    codec.on_message<kennel_msg>(std::function<void(flat_view<kennel_msg>&)>([&](flat_view<kennel_msg>& v) {
+      received = true;
+      auto pet_view = v.get<^^kennel_msg::pet>();
+      expect(pet_view.is_type<dog>());
+      expect(!pet_view.is_type<cat>());
+      auto dog_view = pet_view.get<dog>();
+      expect(dog_view != nullptr);
+      expect(eq(dog_view->get<^^animal::kind>(), 3_u));
+      expect(eq(dog_view->get<^^dog::bones>(), 9_u));
+      expect(throws<std::runtime_error>([&] { pet_view.get<cat>(); }));
+
+      auto other_view = v.get<^^kennel_msg::other>();
+      expect(other_view.is_type<cat>());
+      expect(eq(other_view.get<cat>()->get<^^cat::lives>(), 8_u));
+      expect(other_view != nullptr);
+    }));
+
+    size_t msg_len = write_frame(codec, env.cb, msg);
+    dispatch_frame(codec, env.cb, msg_len);
+    expect(received == true);
   };
 }

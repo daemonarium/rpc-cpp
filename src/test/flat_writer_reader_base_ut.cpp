@@ -268,4 +268,49 @@ int main() {
     expect(msg_out != nullptr);
     expect(msg_out->value == 999);
   };
+
+  "flat writer/reader polymorphic shared_ptr graph"_test = [] {
+    struct base {
+      virtual ~base() = default;
+      std::uint64_t kind = 0;
+    };
+    struct left : base {
+      std::uint64_t id = 0;
+    };
+    struct right : base {
+      std::uint64_t id = 0;
+    };
+    struct holder {
+      std::shared_ptr<base> child;
+      std::shared_ptr<base> again;
+    };
+
+    holder src;
+    auto node = std::make_shared<left>();
+    node->kind = 7;
+    node->id = 11;
+    src.child = node;
+    src.again = node;
+
+    std::string bytes = write_stream([&](auto& w) {
+      w.template register_serialize_typed_function<left>();
+      w.template register_serialize_typed_function<right>();
+      serialize(w, src);
+      w.write_rest();
+    });
+
+    std::istringstream is(bytes);
+    flat_stream_reader r(is);
+    r.register_deserialize_typed_function<left>();
+    r.register_deserialize_typed_function<right>();
+    holder out{};
+    deserialize(r, out);
+    r.read_rest();
+    expect(out.child != nullptr);
+    expect(out.again.get() == out.child.get());
+    auto as_left = std::dynamic_pointer_cast<left>(out.child);
+    expect(as_left != nullptr);
+    expect(eq(as_left->kind, 7_u));
+    expect(eq(as_left->id, 11_u));
+  };
 }

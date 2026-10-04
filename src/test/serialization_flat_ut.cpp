@@ -107,6 +107,7 @@ namespace {
   std::string encode_flat_shared(const std::shared_ptr<Person>& value) {
     std::ostringstream os;
     flat_stream_writer w(os);
+    w.register_serialize_typed_function<Person>();
     w.mark_written_pointer(value); // root: back-refs use negative deltas
     std::size_t size_offset = w.position();
     w.write_u32(0); // encoded_size_0 placeholder
@@ -122,6 +123,7 @@ namespace {
   std::shared_ptr<Person> decode_flat_shared(const std::string& bytes) {
     std::istringstream is(bytes);
     flat_stream_reader r(is);
+    r.register_deserialize_typed_function<Person>();
     std::uint32_t root_encoded_size = 0;
     r.read_u32(root_encoded_size); // consume root prefix (or sentinel if null)
     if(root_encoded_size == 0) {
@@ -481,8 +483,8 @@ int main() {
 
     auto friends = root->get<^^Person::friends>();
     expect(eq(friends.size(), std::size_t{2}));
-    auto f0 = friends[0];
-    auto f1 = friends[1];
+    auto f0 = friends[0].get<Person>();
+    auto f1 = friends[1].get<Person>();
     expect(f0 != nullptr);
     expect(f1 != nullptr);
     expect(eq(std::string(f0->get<^^Person::name>()), std::string{"Friend"}));

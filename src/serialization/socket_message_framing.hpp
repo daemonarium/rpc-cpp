@@ -5,6 +5,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "serialization_format.hpp"
 #include "socket_transport.hpp"
 
 extern "C" {
@@ -16,6 +17,11 @@ namespace serialization {
   // Format-agnostic socket message framing. Owns socket I/O (length-prefix,
   // flush, drain) and delegates format-specific body (type index, serialize,
   // dispatch) to Codec.
+  //
+  // Flat shared_ptr sub-frames are FLAT_WIRE_VERSION (type index per deferred
+  // body). There is no version byte on this framing; a peer that advertises
+  // an older flat graph version must be rejected with
+  // require_flat_wire_version before any flat graph is exchanged.
   //
   // Transport policy (default socket_c_transport) provides buffer access and
   // flush/drain via static polymorphism — no lambdas / std::function on the

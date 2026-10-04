@@ -143,8 +143,8 @@ namespace serialization {
         }
         size_t index = it->second;
         stream_ << std::string(indent_, ' ') << "type index: " << index << std::endl;
-        void* ptr = &data;
-        serialize_typed_functions_[index](ptr);        
+        std::shared_ptr<void> erased = data;
+        serialize_typed_functions_[index](&erased);        
         indent_ -= 2;
 #ifndef __EMSCRIPTEN__
         free(demangled);
@@ -203,7 +203,8 @@ namespace serialization {
       void register_serialize_typed_function() {
         auto type = std::type_index(typeid(T));        
         register_serialize_typed_function(type, [&writer = *this](void* ptr) {
-          std::shared_ptr<T> data = *((std::shared_ptr<T>*)ptr);
+          auto erased = *static_cast<std::shared_ptr<void>*>(ptr);
+          auto data = std::static_pointer_cast<T>(erased);
           serialize(writer, *data);
         });
       }

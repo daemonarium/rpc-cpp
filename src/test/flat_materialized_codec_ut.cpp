@@ -111,6 +111,24 @@ namespace {
     return *a.next == *b.next;
   }
 
+  struct animal {
+    virtual ~animal() = default;
+    std::uint64_t kind = 0;
+  };
+
+  struct dog : animal {
+    std::uint64_t bones = 0;
+  };
+
+  struct cat : animal {
+    std::uint64_t lives = 0;
+  };
+
+  struct kennel {
+    std::shared_ptr<animal> pet;
+    std::shared_ptr<animal> twin;
+  };
+
 }
 
 int main() {
@@ -304,6 +322,40 @@ int main() {
     expect(out->next->next->next == nullptr);
     // Graph topology preserved (no cycles introduced)
     expect(static_cast<bool>(*out == *root));
+
+    circular_buffer_destroy(cb);
+  };
+
+  "flat codec polymorphic dynamic type roundtrip"_test = [] {
+    struct circular_buffer* cb = circular_buffer_create(8192, nullptr);
+    flat_materialized_codec codec(cb, cb);
+    codec.register_dynamic_type<dog>();
+    codec.register_dynamic_type<cat>();
+
+    kennel src;
+    auto pet = std::make_shared<dog>();
+    pet->kind = 1;
+    pet->bones = 4;
+    src.pet = pet;
+    src.twin = pet;
+
+    flat_circular_buffer_writer& w = codec.writer();
+    serialize(w, src);
+    w.write_rest();
+    circular_buffer_commit_write(cb, w.write_offset_);
+
+    flat_buffer_reader<circular_flat_source>& r = codec.reader();
+    kennel out{};
+    deserialize(r, out);
+    r.read_rest();
+
+    expect(out.pet != nullptr);
+    expect(out.twin.get() == out.pet.get());
+    auto as_dog = std::dynamic_pointer_cast<dog>(out.pet);
+    expect(as_dog != nullptr);
+    expect(eq(as_dog->kind, 1_u));
+    expect(eq(as_dog->bones, 4_u));
+    expect(std::dynamic_pointer_cast<cat>(out.pet) == nullptr);
 
     circular_buffer_destroy(cb);
   };
