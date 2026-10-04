@@ -80,6 +80,15 @@ namespace waos::observable {
       }
     }
 
+    // Attach a receiver for an id allocated outside createStream (gateway ref_id).
+    void attachReceiver(std::uint64_t id, StreamReceiver* receiver) {
+      if(receiver) {
+        receivers_[id] = receiver;
+      } else {
+        receivers_.erase(id);
+      }
+    }
+
     std::size_t size() const noexcept { return receivers_.size(); }
     std::uint64_t returnPid() const noexcept { return returnPid_; }
     std::uint32_t returnSocket() const noexcept { return returnSocket_; }

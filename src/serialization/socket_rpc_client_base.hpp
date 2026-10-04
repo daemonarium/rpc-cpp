@@ -18,6 +18,40 @@
 
 namespace serialization {
 
+  // Scalars and pointers do not save_offset(); objects, strings, and containers do.
+  template <class T>
+  constexpr bool rpc_arg_already_saved_offset =
+    Binary<T> || (ContainerButNotString<T> && !Binary<T>) || Map<T> || String<T> || SimpleException<T> ||
+    (UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> &&
+     !SimpleException<T> && !Binary<T>);
+
+  template <class T, class W>
+  void serialize_flat_rpc_arg(W& writer, const T& arg) {
+    serialize(writer, arg);
+    if constexpr (!rpc_arg_already_saved_offset<T>) {
+      writer.save_offset();
+    }
+  }
+
+  // One argument matches serialize(std::tuple<T>) (nested element frame).
+  // Several arguments stay flat: one checkpoint per scalar, pointer bodies
+  // after every argument so read_rest does not consume a trailer.
+  template <class W, class... Args>
+  void write_rpc_args(W& writer, const Args&... args) {
+    writer.begin_frame();
+    if constexpr (sizeof...(Args) == 1) {
+      writer.begin_frame();
+      (serialize(writer, args), ...);
+      writer.write_rest();
+      writer.end_frame();
+      writer.save_offset();
+    } else if constexpr (sizeof...(Args) > 1) {
+      (serialize_flat_rpc_arg(writer, args), ...);
+      writer.write_rest();
+    }
+    writer.end_frame();
+  }
+
   // Format-agnostic CRTP base for socket RPC clients. Owns the control /
   // registry / send machinery that is identical across all codecs:
   //   - the socket_message_framing<Codec, Transport> channel,
@@ -97,9 +131,7 @@ namespace serialization {
       template <typename... Args>
       void send_request_impl(std::uint64_t function_id, std::uint64_t request_id, Args... args) {
         auto& writer = channel_.template begin_send<rpc_request>(rpc_request{request_id, function_id});
-        std::tuple<Args...> args_tuple = std::make_tuple(args...);
-        serialize(writer, args_tuple);
-        writer.write_rest();
+        write_rpc_args(writer, args...);
         channel_.commit_send();
       }
 
@@ -107,9 +139,7 @@ namespace serialization {
       void send_method_request_impl(std::uint64_t function_id, std::uint64_t request_id, Id id, Args... args) {
         auto& writer = channel_.template begin_send<rpc_request>(rpc_request{request_id, function_id});
         serialize(writer, id);
-        std::tuple<Args...> args_tuple = std::make_tuple(args...);
-        serialize(writer, args_tuple);
-        writer.write_rest();
+        write_rpc_args(writer, args...);
         channel_.commit_send();
       }
 
