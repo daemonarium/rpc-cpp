@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "examples/structures/db.hpp"
+#include "observable/remote_observable.hpp"
 #include "observable/remote_registry.hpp"
 #include "observable/stream_multiplexer.hpp"
 #include "serialization/promise.hpp"
@@ -126,10 +127,14 @@ int main() {
     expect(eq(registry.size(), std::size_t{1}));
     expect(eq(client.starts.size(), std::size_t{0}));
 
+    auto again = registry.getOrCreate(kDbStartScan, q);
+    expect(a.get() == again.get());
+    expect(eq(registry.size(), std::size_t{1}));
+
     auto c1 = std::make_shared<RecordingConsumer>();
     auto c2 = std::make_shared<RecordingConsumer>();
-    a->subscribe(c1);
-    b->subscribe(c2);
+    a->observable().subscribe(c1);
+    b->observable().subscribe(c2);
     expect(eq(client.starts.size(), std::size_t{1}));
     expect(eq(client.starts[0].function_id, kDbStartScan));
   };
@@ -141,10 +146,10 @@ int main() {
     waos::db_scan_query q;
     auto obs = registry.getOrCreate(kDbStartScan, q);
     auto c = std::make_shared<RecordingConsumer>();
-    auto out = obs->subscribe(c);
+    auto out = obs->observable().subscribe(c);
     expect(eq(client.starts.size(), std::size_t{1}));
     out->unsubscribe();
-    expect(obs->state() == ObservableState::idle);
+    expect(obs->observable().state() == ObservableState::idle);
     expect(eq(registry.size(), std::size_t{1}));
     expect(registry.getOrCreate(kDbStartScan, q).get() == obs.get());
   };
@@ -154,22 +159,25 @@ int main() {
     StreamMultiplexer mux(client, 1, 1);
     RemoteRegistry registry(mux);
     waos::db_scan_query q;
-    auto obs = registry.getOrCreate(kDbStartScan, q);
+    auto ref = registry.getOrCreate(kDbStartScan, q);
+    auto& obs = ref->observable();
     auto c = std::make_shared<RecordingConsumer>();
-    auto out = obs->subscribe(c);
-    waos::stream_item item{obs->streamId(), bin("a"), bin("1"), 42};
-    obs->onStreamItem(item);
-    waos::stream_done done{obs->streamId()};
-    obs->onStreamDone(done);
-    expect(eq(obs->maxTs(), std::uint64_t{42}));
+    auto out = obs.subscribe(c);
+    auto* remote = dynamic_cast<RemoteObservable<MockClient, MockClient, waos::db_scan_query>*>(&obs);
+    expect(remote != nullptr);
+    waos::stream_item item{remote->streamId(), bin("a"), bin("1"), 42};
+    remote->onStreamItem(item);
+    waos::stream_done done{remote->streamId()};
+    remote->onStreamDone(done);
+    expect(eq(obs.maxTs(), std::uint64_t{42}));
     out->unsubscribe();
-    expect(eq(obs->maxTs(), std::uint64_t{42}));
+    expect(eq(obs.maxTs(), std::uint64_t{42}));
 
     auto c2 = std::make_shared<RecordingConsumer>();
-    obs->subscribe(c2);
+    obs.subscribe(c2);
     expect(eq(client.starts.size(), std::size_t{2}));
     expect(eq(client.starts[0].handle.since_timestamp, std::uint64_t{0}));
-    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
+    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::observe)));
     expect(eq(client.starts[1].handle.since_timestamp, std::uint64_t{42}));
     expect(client.starts[1].handle.since_timestamp != std::uint64_t{0});
   };

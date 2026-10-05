@@ -91,9 +91,12 @@ namespace waos {
     std::uint64_t timestamp = 0;
   };
 
+  // keys_only live key. timestamp is last-ts-wins.
+  // Tombstone in keys_only observe is stream_item with empty value, not stream_key.
   struct [[=serialization::message()]] stream_key {
     std::uint64_t stream_id = 0;
     binary key;
+    std::uint64_t timestamp = 0;
   };
 
   struct [[=serialization::message()]] stream_done {

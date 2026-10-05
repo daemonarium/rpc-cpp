@@ -115,6 +115,11 @@ namespace waos::observable {
           [this](waos::stream_item& m) {
             dispatch(m.stream_id, [&](StreamReceiver* r) { r->onStreamItem(m); });
           }));
+      channel_.template on_message<waos::stream_key>(
+        std::function<void(waos::stream_key&)>(
+          [this](waos::stream_key& m) {
+            dispatch(m.stream_id, [&](StreamReceiver* r) { r->onStreamKey(m); });
+          }));
       channel_.template on_message<waos::stream_done>(
         std::function<void(waos::stream_done&)>(
           [this](waos::stream_done& m) {

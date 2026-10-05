@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -27,6 +28,7 @@ namespace waos::observable {
     std::shared_ptr<serialization::promise<void>> readyPromise_
       = std::make_shared<serialization::promise<void>>();
     std::exception_ptr lastError_;
+    std::vector<std::function<void()>> idleListeners_;
 
   public:
     Observable() = default;
@@ -177,6 +179,10 @@ namespace waos::observable {
     std::size_t activeCount() const noexcept { return activeCount_; }
     std::size_t pausedCount() const noexcept { return pausedCount_; }
 
+    void addIdleListener(std::function<void()> cb) {
+      idleListeners_.push_back(std::move(cb));
+    }
+
     void kill() {
       if(state_ == ObservableState::closed) return;
       auto snapshot = outputs_;
@@ -205,6 +211,13 @@ namespace waos::observable {
         pausedCount_ = 0;
         state_ = ObservableState::idle;
         onStop();
+        notifyIdle();
+      }
+    }
+
+    void notifyIdle() {
+      for(auto const& cb : idleListeners_) {
+        if(cb) cb();
       }
     }
 

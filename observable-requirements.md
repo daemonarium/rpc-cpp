@@ -22,7 +22,9 @@ In scope for v1:
 - A terminal `DeserializedObservable` helper that deserializes
   keys/values via templates.
 - A `RemoteObservable` class that bridges an `Observable` to the wire
-  (flat RPC + stream protocol).
+  (flat RPC + stream protocol). `RemoteReference` is the client handle;
+  `observable()` / `stream()` return `Observable` (`RemoteObservable`
+  for direct mux, `GatewayObservable` for session RPCs).
 - Operator node classes (`FilteredObservable`, `MappedObservable`, ...)
   that compose into trees.
 - Lifecycle: lazy construction, cold subscribe with ts-based replay,
@@ -110,7 +112,10 @@ A `Source` feeds changes into an `Observable`. Concrete sources:
 
 - `RemoteObservable` — receives `stream_item` / `stream_done` /
   `stream_reset` / `stream_error` from the wire and translates them to
-  `Change` events (section 12).
+  `Change` events (section 12). It is the **direct** Observable
+  implementation. Generated clients return `RemoteReference`;
+  `ref.observable()` / `ref.stream()` yield this (or
+  `GatewayObservable` behind a session).
 - (Future) `TableObservable` — a `RemoteObservable` bound to a
   specific DB table, where `range(...)` may issue a new `start_scan`
   instead of a client-side filter.
@@ -391,6 +396,12 @@ alive; `stream_flags::none` is a finite scan that ends on
 floor and retention floor are below `maxTs`), the client gets a
 small delta and catches up cheaply.
 
+`since_timestamp` is a transport filter, not a way to skip local
+scan work. **`observe` + `limit` ignores `since_timestamp`** and
+does a full catch-up: the producer must know the live window of N
+keys, so a delta cannot reconstruct that window. Without `limit`,
+delta catch-up works as above.
+
 ### Full rescan fallback
 
 If the server cannot satisfy the delta (its
@@ -566,10 +577,23 @@ terminal state. Last unsubscribe never enters `closed`; it enters
 
 ## 12. RemoteObservable: wire bridge
 
-`RemoteObservable` is the class that connects a core `Observable`
-to the wire (flat RPC + stream protocol). It does not hardcode DB
-function ids. Start is `function_id` + args (the same shape as
-`rpc_call_mixin::call`). Cancel is a `stream_cancel{stream_id}`
+`RemoteReference` is the client handle for one remote dataset.
+Creating a reference does no network. `observable()` returns the live
+`Observable` (deduped; first call may send gateway `setReference`).
+`stream()` returns the same live object while `activeCount() > 0`,
+otherwise a finite scan. `hold()` is RAII: it keeps the handle
+alive after the last unsubscribe; drop happens when hold count and
+subscriber count both reach 0 (gateway). Direct mode is persistent
+(`RemoteRegistry` owns the handle across idle). `ReferenceOps`
+abstracts direct mux vs session RPCs. `observe` / `unobserve` /
+`fetch` / `dispose` live on `Observable` / `ReferenceOps`, not on
+the handle.
+
+`RemoteObservable` is the **direct** class that connects a core
+`Observable` to the wire (flat RPC + stream protocol). Gateway uses
+`GatewayObservable` with the same `Observable` surface. Neither
+hardcodes DB function ids. Start is `function_id` + args (the same
+shape as `rpc_call_mixin::call`). Cancel is a `stream_cancel{stream_id}`
 message, not an RPC.
 
 `StreamMultiplexer<Starter, Channel>` is the platform-agnostic
@@ -675,12 +699,13 @@ wire stream). This is an essential optimization: without it, N
 views of the same table produce N scans.
 
 **Mechanism:** `RemoteRegistry` keyed by `ObservationKey
-{function_id, serialized args}`. Args are serialized with
-`flat_bytes_writer` (deterministic; same bytes as a tuple on the
-wire). `getOrCreate` returns a `shared_ptr<RemoteObservable>` that
-the registry **owns** for the connection lifetime, so the object
-survives idle (0 consumers). Resubscribe reuses the same
-observable and therefore `maxTs` / the retained view — the start
+{function_id, serialized args}` (no `flags` — live vs scan is
+`observable()` vs `stream()` on the same handle). Args are serialized
+with `flat_bytes_writer` (deterministic; same bytes as a tuple on the
+wire). `getOrCreate` returns a `shared_ptr<RemoteReference>` that
+the registry **owns** for the connection lifetime, so the handle
+survives idle (0 consumers). Resubscribe reuses the same live
+`Observable` and therefore `maxTs` / the retained view — the start
 RPC is a delta (`since = maxTs`), not a full scan.
 
 One muxer per connection. v1 does not evict idle entries (TTL /

@@ -360,20 +360,80 @@ int main() {
     expect(eq(registry.size(), std::size_t{2}));
 
     auto c = std::make_shared<RecordingConsumer>();
-    auto out = a->subscribe(c);
-    waos::stream_item item{a->streamId(), bin("a"), bin("1"), 10};
-    a->onStreamItem(item);
-    waos::stream_done done{a->streamId()};
-    a->onStreamDone(done);
-    expect(eq(a->maxTs(), std::uint64_t{10}));
+    auto& live = a->observable();
+    auto out = live.subscribe(c);
+    auto* remote = dynamic_cast<RemoteObservable<MockClient, MockClient, waos::db_scan_query>*>(&live);
+    expect(remote != nullptr);
+    waos::stream_item item{remote->streamId(), bin("a"), bin("1"), 10};
+    remote->onStreamItem(item);
+    waos::stream_done done{remote->streamId()};
+    remote->onStreamDone(done);
+    expect(eq(live.maxTs(), std::uint64_t{10}));
     out->unsubscribe();
-    expect(a->state() == ObservableState::idle);
+    expect(live.state() == ObservableState::idle);
     expect(eq(registry.size(), std::size_t{2}));
 
     auto c2 = std::make_shared<RecordingConsumer>();
-    a->subscribe(c2);
+    live.subscribe(c2);
     expect(eq(client.starts.size(), std::size_t{2}));
     expect(eq(client.starts[1].handle.since_timestamp, std::uint64_t{10}));
     expect(a.get() == registry.getOrCreate(kDbStartScan, q).get());
+  };
+
+  "RemoteReference.observable dedups subscribe starts once"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RemoteRegistry registry(mux);
+    waos::db_scan_query q;
+    auto ref = registry.getOrCreate(kDbStartScan, q);
+    auto& a = ref->observable();
+    auto& b = ref->observable();
+    expect(&a == &b);
+
+    auto c1 = std::make_shared<RecordingConsumer>();
+    auto c2 = std::make_shared<RecordingConsumer>();
+    auto out1 = a.subscribe(c1);
+    expect(eq(client.starts.size(), std::size_t{1}));
+    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::observe)));
+    b.subscribe(c2);
+    expect(eq(client.starts.size(), std::size_t{1}));
+    expect(eq(a.activeCount(), std::size_t{2}));
+
+    auto cached = ref->stream();
+    expect(cached.get() == ref->peekLive().get());
+
+    out1->unsubscribe();
+    // still one subscriber
+    expect(eq(a.activeCount(), std::size_t{1}));
+  };
+
+  "RemoteReference.stream without observe is a new scan"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RemoteRegistry registry(mux);
+    waos::db_scan_query q;
+    auto ref = registry.getOrCreate(kDbStartScan, q);
+    auto scan = ref->stream();
+    auto c = std::make_shared<RecordingConsumer>();
+    scan->subscribe(c);
+    expect(eq(client.starts.size(), std::size_t{1}));
+    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
+  };
+
+  "RemoteReference.hold is a no-op drop in direct mode"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RemoteRegistry registry(mux);
+    waos::db_scan_query q;
+    auto ref = registry.getOrCreate(kDbStartScan, q);
+    auto holder = ref->hold();
+    auto& obs = ref->observable();
+    auto c = std::make_shared<RecordingConsumer>();
+    auto out = obs.subscribe(c);
+    out->unsubscribe();
+    expect(obs.state() == ObservableState::idle);
+    expect(registry.getOrCreate(kDbStartScan, q).get() == ref.get());
+    holder->dispose();
+    expect(registry.getOrCreate(kDbStartScan, q).get() == ref.get());
   };
 }

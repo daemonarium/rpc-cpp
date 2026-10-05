@@ -25,7 +25,7 @@ Requirements live in `observable-requirements.md`.
 | Socket ack vs stream handshake | Empty ack renamed `socket_opened`; per-stream `stream_opened{id}` appended last | Keep empty `stream_opened` as both bind ack and stream handshake | Type-index stability. Items must not precede `stream_opened{id}`. `start_scan` still does not emit per-scan opened. |
 | Producer backpressure | `try_queue_message`; pending `onChange` until drain | Blocking send; drop on full | Observable already serializes the consumer and pauses when its ring fills. |
 | Cancel before attach | `pendingCancels`; `attach` is a no-op | Ignore early cancel | Handshake race: client may cancel before the producer map insert. |
-| Registry key | `(function_id, serialized args)` via `flat_bytes_writer` | Explicit string key; reflection of dataset identity | Same shape as `rpc_call_mixin::call`. |
+| Registry key | `(function_id, serialized args)` via `flat_bytes_writer` | Explicit string key; flags in the key | Same shape as `rpc_call_mixin::call`. Live vs scan is `observable()` / `stream()` on one `RemoteReference`. |
 | Registry ownership | Registry owns `RemoteObservable` across idle (no eviction in v1) | Destroy on last unsubscribe; weak_ptr | Resubscribe reuses `maxTs` / view → delta, not a full scan. |
 | DB start | Unchanged `start_scan` / `ensure_channel_` reuse by `(pid, socket)` | Per-stream sockets; muxer-owned bind | One-connection = dedicated `open_socket` socket. |
 
@@ -51,11 +51,17 @@ Client stack (wire → Observable):
 
 ```
   RemoteRegistry  (key = function_id + serialized args)
-          │  owns RemoteObservable across idle
+          │  owns RemoteReference across idle
           ▼
-  RemoteObservable<Starter, Channel, Args...>
-          │  onStart: mux.createStream(fn, maxTs, this, args...)
-          │  onStop:  mux.cancelStream → stream_cancel
+  RemoteReference
+          │  observable() → RemoteObservable(flags=observe)  [deduped]
+          │  stream()     → live if activeCount>0 else scan Observable
+          │  hold()       → RAII; gateway drops when refcount → 0
+          ▼
+  RemoteObservable<Starter, Channel, Args...>   (direct)
+  GatewayObservable                             (session)
+          │  onStart: mux.createStream / session observe|fetch
+          │  onStop:  mux.cancelStream / session unobserve
           ▼
   StreamMultiplexer<Starter, Channel>
           │  Starter.call<void>(fn, handle, args...)
@@ -116,12 +122,20 @@ subscribe; `pendingCancels` for cancel-before-attach. Not used
 by `start_scan`.
 
 **`RemoteObservable<Starter, Channel, Args...>`** — wire →
-`Observable<BinaryEntry>` bridge. Stores `function_id` +
+`Observable<BinaryEntry>` bridge (direct mux). Stores `function_id` +
 `tuple<Args...>`. `onStart` / `onStop` go through the muxer.
 
+**`RemoteReference`** — thin handle. `observable()` / `stream()` /
+`hold()`. Lazy `setReference` on first `observable()`/`stream()`.
+Gateway drops when hold+subscribers hit 0; direct `ReferenceOps`
+is persistent (registry owns idle).
+
+**`GatewayObservable`** — session-RPC Observable. `onStart` observe
+or fetch + attachReceiver(`ref_id`); `onStop` unobserve + detach.
+
 **`RemoteRegistry<Starter, Channel>`** — `getOrCreate` keyed by
-`(function_id, serialized args)`. Owns the observable across idle
-so resumption is a delta.
+`(function_id, serialized args)`. Owns the `RemoteReference` across idle
+so resumption is a delta. Live vs scan is not a registry key.
 
 ## Source hook contract
 

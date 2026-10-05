@@ -50,6 +50,10 @@ namespace waos::observable {
       onItem(BinaryEntry{std::move(m.key), std::move(m.value), m.timestamp});
     }
 
+    void onStreamKey(waos::stream_key& m) override {
+      onItem(BinaryEntry{std::move(m.key), waos::binary{0}, m.timestamp});
+    }
+
     void onStreamDone(waos::stream_done&) override {
       onDone();
     }

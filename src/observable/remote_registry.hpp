@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "observable/remote_observable.hpp"
+#include "observable/remote_reference.hpp"
 #include "observable/stream_multiplexer.hpp"
 #include "observable/types.hpp"
 #include "serialization/flat_bytes_writer.hpp"
@@ -43,35 +44,66 @@ namespace waos::observable {
     return out;
   }
 
-  // Owns RemoteObservables keyed by (function_id, serialized args) so they
-  // survive idle (0 consumers). Resubscribe reuses the same object and
-  // therefore maxTs / the retained view (delta resume). v1: no eviction.
+  // Owns RemoteReferences keyed by (function_id, serialized args) so they
+  // survive idle (0 consumers). Resubscribe reuses the same live Observable
+  // and therefore maxTs / the retained view (delta resume). v1: no eviction.
   template <typename Starter, typename Channel = Starter>
   class RemoteRegistry {
     StreamMultiplexer<Starter, Channel>& mux_;
-    std::unordered_map<ObservationKey, std::shared_ptr<void>, ObservationKeyHash> entries_;
+    std::unordered_map<
+      ObservationKey,
+      std::shared_ptr<RemoteReference<BinaryEntry>>,
+      ObservationKeyHash> entries_;
 
   public:
     explicit RemoteRegistry(StreamMultiplexer<Starter, Channel>& mux)
       : mux_(mux) {}
 
     template <typename... Args>
-    std::shared_ptr<RemoteObservable<Starter, Channel, Args...>> getOrCreate(
+    std::shared_ptr<RemoteReference<BinaryEntry>> getOrCreate(
         std::uint64_t function_id, Args... args) {
       auto tup = std::make_tuple(args...);
-      ObservationKey key{
-        function_id,
-        serializeObservationArgs(tup),
-      };
+      ObservationKey key{function_id, serializeObservationArgs(tup)};
       auto it = entries_.find(key);
       if(it != entries_.end()) {
-        return std::static_pointer_cast<RemoteObservable<Starter, Channel, Args...>>(
-          it->second);
+        return it->second;
       }
-      auto obs = std::make_shared<RemoteObservable<Starter, Channel, Args...>>(
-        mux_, function_id, std::move(args)...);
-      entries_.emplace(std::move(key), obs);
-      return obs;
+
+      using Live = RemoteObservable<Starter, Channel, Args...>;
+      auto start = [this, function_id, tup](
+          std::uint64_t since, StreamReceiver* r, waos::stream_flags flags) {
+        return std::apply(
+          [&](auto const&... a) {
+            return mux_.createStream(function_id, since, flags, r, a...);
+          },
+          tup);
+      };
+      auto ops = std::make_shared<DirectReferenceOps<Starter, Channel>>(
+        mux_, function_id, std::move(start));
+
+      auto liveFactory = [this, function_id, tup]() {
+        auto obs = std::apply(
+          [&](auto const&... a) {
+            return std::make_shared<Live>(mux_, function_id, a...);
+          },
+          tup);
+        obs->withFlags(waos::stream_flags::observe);
+        return std::static_pointer_cast<Observable<BinaryEntry>>(obs);
+      };
+      auto scanFactory = [this, function_id, tup]() {
+        auto obs = std::apply(
+          [&](auto const&... a) {
+            return std::make_shared<Live>(mux_, function_id, a...);
+          },
+          tup);
+        obs->withFlags(waos::stream_flags::none);
+        return std::static_pointer_cast<Observable<BinaryEntry>>(obs);
+      };
+
+      auto ref = std::make_shared<RemoteReference<BinaryEntry>>(
+        std::move(ops), std::move(liveFactory), std::move(scanFactory));
+      entries_.emplace(std::move(key), ref);
+      return ref;
     }
 
     std::size_t size() const noexcept { return entries_.size(); }
