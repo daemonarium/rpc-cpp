@@ -622,6 +622,28 @@ the socket cannot accept opened, subscribe waits for
 `onWritable()`. This path is **not** used by `start_scan` (scan
 stays a low-level fast path).
 
+Two flavors of `[[=serialization::observable()]]` /
+`[[=serialization::streamable()]]` methods:
+
+- **Low-level** (today): the method takes `waos::stream_handle` as
+  its first parameter and returns `promise<void>`. The
+  implementation owns stream lifecycle (`stream_*` sends, cancel).
+  Example: `observable_db::table` forwarding to native `start_scan`.
+- **High-level**: the method returns
+  `shared_ptr<Observable<BinaryEntry>>` and has no `stream_handle`
+  parameter. Detection requires both the annotation and that
+  return type. The framework deserializes `stream_handle` from the
+  wire (same as low-level), calls the method, and attaches
+  `StreamPublisher` (`flags=observe` → `attach`; `flags=none` →
+  `attach_oneshot` / `OneShotScanConsumer`). TypeRegistry still
+  describes the method as taking `stream_handle` first and
+  returning void, so the generator and client are unchanged.
+
+`OneShotScanConsumer` is the finite-scan sibling of
+`StreamRelayConsumer`. Subscribe already replays via `onChange`;
+`onReady` queues `stream_done` and the publisher unsubscribes.
+Low-level stays for forward-to-stream cases.
+
 Cancel after opened: known id → `detach` (unsubscribe). Cancel
 before attach: id goes into `pendingCancels`; a later `attach` of
 that id is a no-op (never subscribe). Duplicate attach of a live

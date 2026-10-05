@@ -87,6 +87,12 @@ if(WASM)
     )
   endif()
 
+  if(TARGET dbg_forward)
+    target_link_options(dbg_forward PRIVATE
+      -sEXPORTED_FUNCTIONS=_rpc_description,_start,_malloc,_waos_socket_data,_waos_socket_output_drain,_waos_set_process_id
+    )
+  endif()
+
   # Compressed USER face (peer modules use compressed_socket_rpc_* on sock 0).
   if(TARGET dbg_cpeer)
     target_compile_definitions(dbg_cpeer PRIVATE WAOS_MODULE_RPC_COMPRESSED)
@@ -167,6 +173,20 @@ if(NOT WASM)
   target_include_directories(remote_registry_ut PRIVATE src)
   target_link_libraries(remote_registry_ut PRIVATE Boost::ut)
   set_target_properties(remote_registry_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(high_level_observable_ut src/test/high_level_observable_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  target_include_directories(high_level_observable_ut PRIVATE src)
+  target_link_libraries(high_level_observable_ut PRIVATE Boost::ut socket_test_stub)
+  set_target_properties(high_level_observable_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
+  add_executable(dbg_forward_integration_ut src/test/dbg_forward_integration_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  target_include_directories(dbg_forward_integration_ut PRIVATE src)
+  target_link_libraries(dbg_forward_integration_ut PRIVATE Boost::ut socket_test_stub)
+  set_target_properties(dbg_forward_integration_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
@@ -389,6 +409,8 @@ if(NOT WASM)
   add_test(NAME stream_publisher_ut COMMAND stream_publisher_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME remote_observable_ut COMMAND remote_observable_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME remote_registry_ut COMMAND remote_registry_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME high_level_observable_ut COMMAND high_level_observable_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME dbg_forward_integration_ut COMMAND dbg_forward_integration_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME io_circular_buffer_ut COMMAND io_circular_buffer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME socket_loopback_ut COMMAND socket_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME serialization_stream_ut COMMAND serialization_stream_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)

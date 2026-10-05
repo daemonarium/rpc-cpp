@@ -64,5 +64,9 @@ extern "C" void start() {
     if(server_ptr) {
       server_ptr->handle_data();
     }
+  }, [server_ptr]() {
+    if(server_ptr) {
+      server_ptr->on_stream_writable();
+    }
   });
 }

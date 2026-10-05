@@ -10,6 +10,7 @@
 
 #include "examples/structures/stream_protocol.hpp"
 #include "observable/observable.hpp"
+#include "observable/one_shot_scan_consumer.hpp"
 #include "observable/stream_relay_consumer.hpp"
 
 namespace waos::observable {
@@ -22,12 +23,15 @@ namespace waos::observable {
   template <typename Channel>
   class StreamPublisher {
     struct Entry {
-      std::shared_ptr<StreamRelayConsumer<Channel>> consumer;
+      std::shared_ptr<StreamRelayConsumer<Channel>> live;
+      std::shared_ptr<OneShotScanConsumer<Channel>> oneshot;
       std::shared_ptr<ConsumerOutput> subscription;
+      std::shared_ptr<Observable<BinaryEntry>> owned;
       Observable<BinaryEntry>* obs = nullptr;
       std::uint64_t since = 0;
       std::size_t bufferLimit = 1024;
       bool opened = false;
+      bool finishPending = false;
     };
 
     Channel& channel_;
@@ -56,19 +60,35 @@ namespace waos::observable {
         Observable<BinaryEntry>& obs,
         std::uint64_t since = 0,
         std::size_t bufferLimit = 1024) {
-      if(pendingCancels_.erase(stream_id)) return;
-      detach(stream_id);
-      Entry e;
-      e.consumer = std::make_shared<StreamRelayConsumer<Channel>>(
-        channel_, stream_id, since);
-      e.obs = &obs;
-      e.since = since;
-      e.bufferLimit = bufferLimit;
-      streams_[stream_id] = std::move(e);
-      if(channel_.template try_queue_message<waos::stream_opened>(
-            waos::stream_opened{stream_id})) {
-        completeOpen(stream_id);
-      }
+      attachImpl(stream_id, &obs, nullptr, since, bufferLimit, false);
+    }
+
+    void attach(
+        std::uint64_t stream_id,
+        std::shared_ptr<Observable<BinaryEntry>> obs,
+        std::uint64_t since = 0,
+        std::size_t bufferLimit = 1024) {
+      if(!obs) return;
+      Observable<BinaryEntry>* raw = obs.get();
+      attachImpl(stream_id, raw, std::move(obs), since, bufferLimit, false);
+    }
+
+    void attach_oneshot(
+        std::uint64_t stream_id,
+        Observable<BinaryEntry>& obs,
+        std::uint64_t since = 0,
+        std::size_t bufferLimit = 1024) {
+      attachImpl(stream_id, &obs, nullptr, since, bufferLimit, true);
+    }
+
+    void attach_oneshot(
+        std::uint64_t stream_id,
+        std::shared_ptr<Observable<BinaryEntry>> obs,
+        std::uint64_t since = 0,
+        std::size_t bufferLimit = 1024) {
+      if(!obs) return;
+      Observable<BinaryEntry>* raw = obs.get();
+      attachImpl(stream_id, raw, std::move(obs), since, bufferLimit, true);
     }
 
     void detach(std::uint64_t stream_id) {
@@ -105,7 +125,13 @@ namespace waos::observable {
           it = streams_.find(id);
           if(it == streams_.end()) continue;
         }
-        it->second.consumer->onWritable();
+        if(it->second.live) it->second.live->onWritable();
+        else if(it->second.oneshot) it->second.oneshot->onWritable();
+        it = streams_.find(id);
+        if(it == streams_.end()) continue;
+        if(oneshotFinished(it->second)) {
+          detach(id);
+        }
       }
     }
 
@@ -115,12 +141,68 @@ namespace waos::observable {
     }
 
   private:
+    static bool oneshotFinished(const Entry& e) {
+      return e.oneshot && (e.finishPending || e.oneshot->finished());
+    }
+
+    void attachImpl(
+        std::uint64_t stream_id,
+        Observable<BinaryEntry>* obs,
+        std::shared_ptr<Observable<BinaryEntry>> owned,
+        std::uint64_t since,
+        std::size_t bufferLimit,
+        bool oneshot) {
+      if(pendingCancels_.erase(stream_id)) return;
+      detach(stream_id);
+      Entry e;
+      e.obs = obs;
+      e.owned = std::move(owned);
+      e.since = since;
+      e.bufferLimit = bufferLimit;
+      if(oneshot) {
+        e.oneshot = std::make_shared<OneShotScanConsumer<Channel>>(
+          channel_, stream_id, since);
+        e.oneshot->setOnFinished([this, stream_id]() {
+          auto it = streams_.find(stream_id);
+          if(it == streams_.end()) return;
+          if(!it->second.subscription) {
+            it->second.finishPending = true;
+            return;
+          }
+          detach(stream_id);
+        });
+      } else {
+        e.live = std::make_shared<StreamRelayConsumer<Channel>>(
+          channel_, stream_id, since);
+      }
+      streams_[stream_id] = std::move(e);
+      if(channel_.template try_queue_message<waos::stream_opened>(
+            waos::stream_opened{stream_id})) {
+        completeOpen(stream_id);
+      }
+    }
+
     void completeOpen(std::uint64_t stream_id) {
       auto it = streams_.find(stream_id);
       if(it == streams_.end() || it->second.opened) return;
       it->second.opened = true;
-      it->second.subscription = it->second.obs->subscribe(
-        it->second.consumer, it->second.bufferLimit);
+      Observable<BinaryEntry>* obs = it->second.obs;
+      std::size_t bufferLimit = it->second.bufferLimit;
+      std::shared_ptr<ConsumerOutput> sub;
+      if(it->second.live) {
+        sub = obs->subscribe(it->second.live, bufferLimit);
+      } else {
+        sub = obs->subscribe(it->second.oneshot, bufferLimit);
+      }
+      it = streams_.find(stream_id);
+      if(it == streams_.end()) {
+        if(sub) sub->unsubscribe();
+        return;
+      }
+      it->second.subscription = std::move(sub);
+      if(oneshotFinished(it->second)) {
+        detach(stream_id);
+      }
     }
   };
 

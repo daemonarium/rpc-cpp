@@ -319,4 +319,71 @@ int main() {
     expect(std::holds_alternative<waos::stream_opened>(ch.sent[0]));
     expect(std::holds_alternative<waos::stream_item>(ch.sent[1]));
   };
+
+  "oneshot drains replay then stream_done and unsubscribes"_test = [] {
+    ManualSource src;
+    src.push(b("a"), b("1"), 1);
+    src.push(b("b"), b("2"), 2);
+    MockChannel ch;
+    StreamPublisher pub(ch);
+    pub.attach_oneshot(3, src, 1);
+    expect(eq(src.starts, 1));
+    auto items = ofType<waos::stream_item>(ch.sent);
+    expect(eq(items.size(), std::size_t{1}));
+    expect(items[0].key == b("b"));
+    expect(eq(ofType<waos::stream_done>(ch.sent).size(), std::size_t{0}));
+    src.done();
+    expect(eq(ofType<waos::stream_done>(ch.sent).size(), std::size_t{1}));
+    expect(eq(ofType<waos::stream_done>(ch.sent)[0].stream_id, std::uint64_t{3}));
+    expect(pub.isAttached(3) == false);
+    expect(src.state() == ObservableState::idle);
+    expect(eq(src.stops, 1));
+    src.push(b("c"), b("3"), 3);
+    expect(eq(ofType<waos::stream_item>(ch.sent).size(), std::size_t{1}));
+  };
+
+  "oneshot on already-ready Observable sends done immediately"_test = [] {
+    struct Dummy {
+      std::shared_ptr<serialization::promise<void>> onChange(Change) {
+        return serialization::promise<void>::resolved();
+      }
+      void onReady() {}
+      void onReset() {}
+      void onError(std::exception_ptr) {}
+      void onClosed() {}
+      std::uint64_t sinceTimestamp() const { return 0; }
+    };
+    ManualSource src;
+    auto dummy = std::make_shared<Dummy>();
+    auto hold = src.subscribe(dummy);
+    src.push(b("k"), b("v"), 5);
+    src.done();
+    expect(src.state() == ObservableState::ready);
+    MockChannel ch;
+    StreamPublisher pub(ch);
+    pub.attach_oneshot(1, src);
+    expect(eq(ofType<waos::stream_item>(ch.sent).size(), std::size_t{1}));
+    expect(eq(ofType<waos::stream_done>(ch.sent).size(), std::size_t{1}));
+    expect(pub.isAttached(1) == false);
+    expect(src.state() == ObservableState::ready);
+    hold->unsubscribe();
+  };
+
+  "oneshot shared_ptr keeps Observable alive after attach returns"_test = [] {
+    MockChannel ch;
+    StreamPublisher pub(ch);
+    std::weak_ptr<Observable<BinaryEntry>> weak;
+    {
+      auto obs = std::make_shared<ManualSource>();
+      obs->push(b("k"), b("v"), 1);
+      weak = obs;
+      pub.attach(7, std::static_pointer_cast<Observable<BinaryEntry>>(obs));
+    }
+    expect(weak.expired() == false);
+    expect(pub.isAttached(7));
+    auto items = ofType<waos::stream_item>(ch.sent);
+    expect(eq(items.size(), std::size_t{1}));
+    pub.detach(7);
+    expect(weak.expired());
+  };
 }

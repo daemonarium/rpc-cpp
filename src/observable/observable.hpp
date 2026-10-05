@@ -174,6 +174,9 @@ namespace waos::observable {
     }
 
     std::uint64_t maxTs() const noexcept { return maxTs_; }
+    void bumpMaxTs(std::uint64_t ts) {
+      if(ts > maxTs_) maxTs_ = ts;
+    }
     ObservableState state() const noexcept { return state_; }
     std::exception_ptr lastError() const { return lastError_; }
     std::size_t activeCount() const noexcept { return activeCount_; }

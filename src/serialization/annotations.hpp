@@ -158,6 +158,40 @@ namespace serialization {
     return it != annotations.end();
   }
 
+  template <std::meta::info member>
+  consteval bool first_param_is_stream_handle() {
+    bool first = true;
+    bool hit = false;
+    [:serialization::expand(std::meta::parameters_of(member)):] >> [&]<auto param> {
+      if(first) {
+        first = false;
+        constexpr std::string_view s =
+          std::meta::display_string_of(std::meta::type_of(param));
+        hit = s.find("stream_handle") != std::string_view::npos;
+      }
+    };
+    return hit;
+  }
+
+  template <std::meta::info member>
+  consteval bool is_high_level_observable() {
+    if constexpr (!is_observable(member) && !is_streamable(member)) {
+      return false;
+    }
+    constexpr std::string_view rts =
+      std::meta::display_string_of(std::meta::return_type_of(member));
+    if constexpr (rts.find("shared_ptr") == std::string_view::npos) {
+      return false;
+    }
+    if constexpr (rts.find("Observable") == std::string_view::npos) {
+      return false;
+    }
+    if constexpr (first_param_is_stream_handle<member>()) {
+      return false;
+    }
+    return true;
+  }
+
   template <std::meta::info entity, typename Ptr>
   std::vector<Ptr> annotations_of() {
     std::vector<Ptr> out;

@@ -28,6 +28,7 @@ Requirements live in `observable-requirements.md`.
 | Registry key | `(function_id, serialized args)` via `flat_bytes_writer` | Explicit string key; flags in the key | Same shape as `rpc_call_mixin::call`. Live vs scan is `observable()` / `stream()` on one `RemoteReference`. |
 | Registry ownership | Registry owns `RemoteObservable` across idle (no eviction in v1) | Destroy on last unsubscribe; weak_ptr | Resubscribe reuses `maxTs` / view → delta, not a full scan. |
 | DB start | Unchanged `start_scan` / `ensure_channel_` reuse by `(pid, socket)` | Per-stream sockets; muxer-owned bind | One-connection = dedicated `open_socket` socket. |
+| High-level observable methods | Annotation + `shared_ptr<Observable<BinaryEntry>>` return + no `stream_handle` param | Return-type-only; annotation-only; `Ref` as `Call` arg | Wire stays `stream_handle` first / void return. Framework attaches `StreamPublisher` (`observe` → live, `none` → `OneShotScanConsumer`). Low-level (`stream_handle` + `promise<void>`) stays. |
 
 ## Architecture
 
@@ -117,9 +118,19 @@ triggers a second cancel.
 drops it.
 
 **`StreamPublisher<Channel>`** — one Channel / socket.
-`attach` / `detach` / `onCancel` / `onWritable`. Opened-before-
-subscribe; `pendingCancels` for cancel-before-attach. Not used
-by `start_scan`.
+`attach` / `attach_oneshot` / `detach` / `onCancel` / `onWritable`.
+Opened-before-subscribe; `pendingCancels` for cancel-before-attach.
+`shared_ptr<Observable>` overloads keep the returned Observable
+alive. Not used by `start_scan`. High-level RPC methods are
+dispatched by `rpc_server_registry`: deserialize `stream_handle`,
+call the method, `attach` or `attach_oneshot` from `stream.flags`.
+`socket_rpc_server_base` owns the publisher.
+
+**`OneShotScanConsumer<Channel>`** — finite-scan sibling of
+`StreamRelayConsumer`. Same `onChange` / control queueing.
+`onReady` sends `stream_done` (subscribe already replayed; does
+not drain `getEntries` again) then marks finished so the
+publisher unsubscribes. `onReset` is a restart, not terminal.
 
 **`RemoteObservable<Starter, Channel, Args...>`** — wire →
 `Observable<BinaryEntry>` bridge (direct mux). Stores `function_id` +
@@ -203,7 +214,14 @@ by id, cancel drops unknown ids, cancel-before-opened resend,
 replay, try_queue backpressure / pause-resume, done waits for
 blocked item, reset-while-blocked, two ids one Observable,
 cancel after/before attach, duplicate attach, detach/cancel
-no-op, publisher dtor.
+no-op, publisher dtor, oneshot drain + `stream_done` unsubscribe,
+shared_ptr attach lifetime.
+
+`high_level_observable_ut`: observe vs oneshot dispatch, cancel,
+RemoteReference dedup (one upstream RPC).
+
+`dbg_forward_integration_ut`: mock db `table` → `DbgForward::forward`
+→ client; live put; unsubscribe cancel; resubscribe `since = maxTs`.
 
 `remote_observable_ut`: subscribe/`onStart`, wire signals, last
 unsubscribe cancel, resubscribe `since = maxTs`, loopback

@@ -18,6 +18,7 @@
 #include "type_name.hpp"
 
 #include "promise.hpp"
+#include "examples/structures/stream_protocol.hpp"
 
 namespace serialization {
 
@@ -418,12 +419,22 @@ namespace serialization {
 
     template <std::meta::info member, TypeRegistry R>
     static void register_parameters_and_return(R& registry, std::shared_ptr<type_description> method_type) {
+      if constexpr (is_high_level_observable<member>()) {
+        // Wire shape matches low-level: stream_handle first, void return.
+        waos::stream_handle handle{};
+        method_type->members.push_back(type_description::member(
+          "stream", create(handle, registry), {}));
+      }
       [:serialization::expand(std::meta::parameters_of(member)):] >> [&]<auto param> {
         std::string_view name = std::meta::identifier_of(param);
         auto param_value = typename [:std::meta::type_of(param):]();
         std::shared_ptr<type_description> param_type = create(param_value, registry);
         method_type->members.push_back(type_description::member(std::string(name), param_type, {}));
       };
+      if constexpr (is_high_level_observable<member>()) {
+        method_type->item = registry.get_type(0);  // void on the wire
+        return;
+      }
       constexpr std::meta::info return_type = std::meta::return_type_of(member);
       // Use display_string to check if it's a reference or void type
       constexpr std::string_view return_type_str = std::meta::display_string_of(return_type);

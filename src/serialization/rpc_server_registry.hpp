@@ -6,6 +6,8 @@
 #include "type_concepts.hpp"
 #include "promise.hpp"
 #include "annotations.hpp"
+#include "examples/structures/stream_protocol.hpp"
+#include "observable/observable.hpp"
 #include <functional>
 #include <vector>
 #include <set>
@@ -14,6 +16,9 @@
 #include <string>
 #include <tuple>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
+#include <utility>
 
 //#define RPC_SERVER_DEBUG
 
@@ -135,7 +140,11 @@ namespace serialization {
 
             server.debug("rpc static method %s", std::string(std::meta::identifier_of(member)).c_str());
             constexpr auto static_func_ptr = &[:member:];
-            server.register_static_method(&[:member:]);
+            if constexpr (is_high_level_observable<member>()) {
+              server.register_high_level_observable_method(&[:member:]);
+            } else {
+              server.register_static_method(&[:member:]);
+            }
           }
         };
 
@@ -197,8 +206,12 @@ namespace serialization {
               register_parameters_and_return<member>(server);
               // Convert reflection info to member function pointer
               server.debug("rpc dynamic method %s", std::string(std::meta::identifier_of(member)).c_str());
-              constexpr auto member_func_ptr = &[:member:];            
-              server.register_dynamic_method(T::get_rpc_object, member_func_ptr);                
+              constexpr auto member_func_ptr = &[:member:];
+              if constexpr (is_high_level_observable<member>()) {
+                server.register_high_level_observable_method(T::get_rpc_object, member_func_ptr);
+              } else {
+                server.register_dynamic_method(T::get_rpc_object, member_func_ptr);
+              }                
             }
           };
         }
@@ -216,7 +229,11 @@ namespace serialization {
               // Convert reflection info to member function pointer
               server.debug("rpc singleton method %s", std::string(std::meta::identifier_of(member)).c_str());
               constexpr auto member_func_ptr = &[:member:];
-              server.register_singleton_method(member_func_ptr);                
+              if constexpr (is_high_level_observable<member>()) {
+                server.register_high_level_observable_method(member_func_ptr);
+              } else {
+                server.register_singleton_method(member_func_ptr);
+              }                
             }
           };
         }
@@ -243,6 +260,154 @@ namespace serialization {
           std::tuple<Args...> args;
           deserialize_args<0>(reader, args);
           return derived()->template process_call<Rt>([&]() -> Rt { return std::apply(callable, args); }, writer, request_id);
+        });
+      }
+
+      template<typename Rt, typename... Args>
+      void register_high_level_observable_method(Rt(*callable)(Args...)) {
+        functions_.push_back([this, callable](Rd& reader, Wr& writer, uint64_t request_id) {
+          (void)writer;
+          std::tuple<waos::stream_handle, Args...> wire;
+          deserialize_args<0>(reader, wire);
+          waos::stream_handle stream = std::get<0>(wire);
+          try {
+            auto obs = std::apply(callable, drop_first(wire));
+            derived()->attach_high_level_observable(stream, std::move(obs));
+            derived()->send_response(request_id);
+          } catch(const std::exception& e) {
+            derived()->send_error(request_id, e);
+          } catch(...) {
+            derived()->send_error(request_id, std::runtime_error("uncaught exception in high-level observable"));
+          }
+          return serialization::promise<void>::resolved();
+        });
+      }
+
+      template <typename Id, typename Class, typename Rt, typename... Args>
+      void register_high_level_observable_method(Class&(fetch_object)(Id), Rt(Class::*callable)(Args...)) {
+        functions_.push_back([this, fetch_object, callable](Rd& reader, Wr& writer, uint64_t request_id) {
+          (void)writer;
+          Id id;
+          deserialize(reader, id);
+          Class& object = fetch_object(id);
+          std::tuple<waos::stream_handle, Args...> wire;
+          deserialize_args<0>(reader, wire);
+          waos::stream_handle stream = std::get<0>(wire);
+          try {
+            auto obs = std::apply([&](auto&&... a) { return (object.*callable)(a...); }, drop_first(wire));
+            derived()->attach_high_level_observable(stream, std::move(obs));
+            derived()->send_response(request_id);
+          } catch(const std::exception& e) {
+            derived()->send_error(request_id, e);
+          } catch(...) {
+            derived()->send_error(request_id, std::runtime_error("uncaught exception in high-level observable"));
+          }
+          return serialization::promise<void>::resolved();
+        });
+      }
+
+      template <typename Id, typename Class, typename Rt, typename... Args>
+      void register_high_level_observable_method(Class&(fetch_object)(Id), Rt(Class::*callable)(Args...) const) {
+        functions_.push_back([this, fetch_object, callable](Rd& reader, Wr& writer, uint64_t request_id) {
+          (void)writer;
+          Id id;
+          deserialize(reader, id);
+          Class& object = fetch_object(id);
+          std::tuple<waos::stream_handle, Args...> wire;
+          deserialize_args<0>(reader, wire);
+          waos::stream_handle stream = std::get<0>(wire);
+          try {
+            auto obs = std::apply([&](auto&&... a) { return (object.*callable)(a...); }, drop_first(wire));
+            derived()->attach_high_level_observable(stream, std::move(obs));
+            derived()->send_response(request_id);
+          } catch(const std::exception& e) {
+            derived()->send_error(request_id, e);
+          } catch(...) {
+            derived()->send_error(request_id, std::runtime_error("uncaught exception in high-level observable"));
+          }
+          return serialization::promise<void>::resolved();
+        });
+      }
+
+      template <typename Class, typename Rt, typename... Args>
+      void register_high_level_observable_method(Rt(Class::*callable)(Args...)) {
+        functions_.push_back([this, callable](Rd& reader, Wr& writer, uint64_t request_id) {
+          (void)writer;
+          std::tuple<waos::stream_handle, Args...> wire;
+          deserialize_args<0>(reader, wire);
+          waos::stream_handle stream = std::get<0>(wire);
+          try {
+            Class& instance = Class::get_rpc_instance();
+            auto obs = std::apply([&](auto&&... a) { return (instance.*callable)(a...); }, drop_first(wire));
+            derived()->attach_high_level_observable(stream, std::move(obs));
+            derived()->send_response(request_id);
+          } catch(const std::exception& e) {
+            derived()->send_error(request_id, e);
+          } catch(...) {
+            derived()->send_error(request_id, std::runtime_error("uncaught exception in high-level observable"));
+          }
+          return serialization::promise<void>::resolved();
+        });
+      }
+
+      template <typename Class, typename Rt, typename... Args>
+      void register_high_level_observable_method(Rt(Class::*callable)(Args...) const) {
+        functions_.push_back([this, callable](Rd& reader, Wr& writer, uint64_t request_id) {
+          (void)writer;
+          std::tuple<waos::stream_handle, Args...> wire;
+          deserialize_args<0>(reader, wire);
+          waos::stream_handle stream = std::get<0>(wire);
+          try {
+            Class& instance = Class::get_rpc_instance();
+            auto obs = std::apply([&](auto&&... a) { return (instance.*callable)(a...); }, drop_first(wire));
+            derived()->attach_high_level_observable(stream, std::move(obs));
+            derived()->send_response(request_id);
+          } catch(const std::exception& e) {
+            derived()->send_error(request_id, e);
+          } catch(...) {
+            derived()->send_error(request_id, std::runtime_error("uncaught exception in high-level observable"));
+          }
+          return serialization::promise<void>::resolved();
+        });
+      }
+
+      template <typename Class, typename Rt, typename... Args>
+      void register_high_level_observable_method(Class& object, Rt(Class::*callable)(Args...)) {
+        functions_.push_back([this, &object, callable](Rd& reader, Wr& writer, uint64_t request_id) {
+          (void)writer;
+          std::tuple<waos::stream_handle, Args...> wire;
+          deserialize_args<0>(reader, wire);
+          waos::stream_handle stream = std::get<0>(wire);
+          try {
+            auto obs = std::apply([&](auto&&... a) { return (object.*callable)(a...); }, drop_first(wire));
+            derived()->attach_high_level_observable(stream, std::move(obs));
+            derived()->send_response(request_id);
+          } catch(const std::exception& e) {
+            derived()->send_error(request_id, e);
+          } catch(...) {
+            derived()->send_error(request_id, std::runtime_error("uncaught exception in high-level observable"));
+          }
+          return serialization::promise<void>::resolved();
+        });
+      }
+
+      template <typename Class, typename Rt, typename... Args>
+      void register_high_level_observable_method(Class& object, Rt(Class::*callable)(Args...) const) {
+        functions_.push_back([this, &object, callable](Rd& reader, Wr& writer, uint64_t request_id) {
+          (void)writer;
+          std::tuple<waos::stream_handle, Args...> wire;
+          deserialize_args<0>(reader, wire);
+          waos::stream_handle stream = std::get<0>(wire);
+          try {
+            auto obs = std::apply([&](auto&&... a) { return (object.*callable)(a...); }, drop_first(wire));
+            derived()->attach_high_level_observable(stream, std::move(obs));
+            derived()->send_response(request_id);
+          } catch(const std::exception& e) {
+            derived()->send_error(request_id, e);
+          } catch(...) {
+            derived()->send_error(request_id, std::runtime_error("uncaught exception in high-level observable"));
+          }
+          return serialization::promise<void>::resolved();
         });
       }
 
@@ -322,8 +487,12 @@ namespace serialization {
                      && !is_member_ignored(member)) {
             constexpr std::string_view name = std::meta::identifier_of(member);
             if constexpr (name.find('~') == std::string_view::npos) {
-              constexpr auto member_func_ptr = &[:member:];
+            constexpr auto member_func_ptr = &[:member:];
+            if constexpr (is_high_level_observable<member>()) {
+              register_high_level_observable_method(object, member_func_ptr);
+            } else {
               register_object_method(object, member_func_ptr);
+            }
             }
           }
         };
@@ -350,6 +519,15 @@ namespace serialization {
           deserialize_args<I + 1>(reader, args);
           reader.read_rest();
         }
+      }
+
+      template <typename Tuple>
+      static auto drop_first(Tuple& t) {
+        using Bare = std::remove_cvref_t<Tuple>;
+        return [&]<std::size_t... I>(std::index_sequence<I...>) {
+          return std::tuple<std::tuple_element_t<I + 1, Bare>...>(
+            std::get<I + 1>(std::move(t))...);
+        }(std::make_index_sequence<std::tuple_size_v<Bare> - 1>{});
       }
 
       #ifdef RPC_SERVER_DEBUG
