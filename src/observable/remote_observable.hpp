@@ -20,6 +20,8 @@ namespace waos::observable {
     StreamMultiplexer<Starter, Channel>& mux_;
     std::uint64_t functionId_ = 0;
     waos::stream_flags flags_ = waos::stream_flags::none;
+    std::uint64_t since_ = 0;
+    bool started_ = false;
     std::tuple<Args...> args_;
     std::uint64_t streamId_ = 0;
 
@@ -34,6 +36,11 @@ namespace waos::observable {
 
     RemoteObservable& withFlags(waos::stream_flags flags) {
       flags_ = flags;
+      return *this;
+    }
+
+    RemoteObservable& withSince(std::uint64_t since) {
+      since_ = since;
       return *this;
     }
 
@@ -68,9 +75,12 @@ namespace waos::observable {
 
   protected:
     void onStart() override {
+      std::uint64_t since = since_;
+      if(flags_ == waos::stream_flags::observe || started_) since = maxTs();
+      started_ = true;
       streamId_ = std::apply(
         [&](auto&... a) {
-          return mux_.createStream(functionId_, maxTs(), flags_, this, a...);
+          return mux_.createStream(functionId_, since, flags_, this, a...);
         },
         args_);
     }

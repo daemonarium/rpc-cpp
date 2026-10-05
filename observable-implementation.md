@@ -57,6 +57,7 @@ Client stack (wire → Observable):
   RemoteReference
           │  observable() → RemoteObservable(flags=observe)  [deduped]
           │  stream()     → live if activeCount>0 else scan Observable
+          │  fetch()      → always a new scan Observable
           │  hold()       → RAII; gateway drops when refcount → 0
           ▼
   RemoteObservable<Starter, Channel, Args...>   (direct)
@@ -136,13 +137,15 @@ publisher unsubscribes. `onReset` is a restart, not terminal.
 `Observable<BinaryEntry>` bridge (direct mux). Stores `function_id` +
 `tuple<Args...>`. `onStart` / `onStop` go through the muxer.
 
-**`RemoteReference`** — thin handle. `observable()` / `stream()` /
-`hold()`. Lazy `setReference` on first `observable()`/`stream()`.
+**`RemoteReference`** — thin handle. `observable()` / `stream(since)` /
+`fetch(since)` / `hold()`. Lazy `setReference` on first `observable()`/`stream()`/`fetch()`.
 Gateway drops when hold+subscribers hit 0; direct `ReferenceOps`
-is persistent (registry owns idle).
+is persistent (registry owns idle). `stream()` reuses live when
+`activeCount() > 0`; `fetch()` always starts a scan.
 
 **`GatewayObservable`** — session-RPC Observable. `onStart` observe
-or fetch + attachReceiver(`ref_id`); `onStop` unobserve + detach.
+(with `maxTs()`) or fetch (`since` on first start, `maxTs()` on restart)
++ attachReceiver; `onStop` unobserve + detach.
 
 **`RemoteRegistry<Starter, Channel>`** — `getOrCreate` keyed by
 `(function_id, serialized args)`. Owns the `RemoteReference` across idle

@@ -25,8 +25,8 @@ namespace waos::observable {
   public:
     virtual ~ReferenceOps() = default;
     virtual void setReference() = 0;
-    virtual void observe(StreamReceiver* receiver) = 0;
-    virtual void fetch(StreamReceiver* receiver) = 0;
+    virtual void observe(StreamReceiver* receiver, std::uint64_t since) = 0;
+    virtual void fetch(StreamReceiver* receiver, waos::stream_flags flags, std::uint64_t since) = 0;
     virtual void unobserve() = 0;
     virtual void dispose() = 0;
     virtual bool persistent() const { return false; }
@@ -51,12 +51,12 @@ namespace waos::observable {
     bool persistent() const override { return true; }
     void setReference() override {}
 
-    void observe(StreamReceiver* receiver) override {
-      if(start_) streamId_ = start_(0, receiver, waos::stream_flags::observe);
+    void observe(StreamReceiver* receiver, std::uint64_t since) override {
+      if(start_) streamId_ = start_(since, receiver, waos::stream_flags::observe);
     }
 
-    void fetch(StreamReceiver* receiver) override {
-      if(start_) streamId_ = start_(0, receiver, waos::stream_flags::none);
+    void fetch(StreamReceiver* receiver, waos::stream_flags flags, std::uint64_t since) override {
+      if(start_) streamId_ = start_(since, receiver, flags);
     }
 
     void unobserve() override {
@@ -72,7 +72,7 @@ namespace waos::observable {
   class RemoteReference {
     std::shared_ptr<ReferenceOps> ops_;
     std::function<std::shared_ptr<Observable<EntryT>>()> liveFactory_;
-    std::function<std::shared_ptr<Observable<EntryT>>()> scanFactory_;
+    std::function<std::shared_ptr<Observable<EntryT>>(std::uint64_t)> scanFactory_;
     std::shared_ptr<Observable<EntryT>> live_;
     std::vector<std::shared_ptr<Observable<EntryT>>> scans_;
     std::size_t holdCount_ = 0;
@@ -99,7 +99,7 @@ namespace waos::observable {
     RemoteReference(
         std::shared_ptr<ReferenceOps> ops,
         std::function<std::shared_ptr<Observable<EntryT>>()> liveFactory,
-        std::function<std::shared_ptr<Observable<EntryT>>()> scanFactory)
+        std::function<std::shared_ptr<Observable<EntryT>>(std::uint64_t)> scanFactory)
       : ops_(std::move(ops))
       , liveFactory_(std::move(liveFactory))
       , scanFactory_(std::move(scanFactory)) {}
@@ -110,10 +110,17 @@ namespace waos::observable {
       return *live_;
     }
 
-    std::shared_ptr<Observable<EntryT>> stream() {
+    std::shared_ptr<Observable<EntryT>> stream(std::uint64_t since = 0) {
       ensureSet();
       if(live_ && live_->activeCount() > 0) return live_;
-      auto scan = adopt(scanFactory_());
+      auto scan = adopt(scanFactory_(since));
+      scans_.push_back(scan);
+      return scan;
+    }
+
+    std::shared_ptr<Observable<EntryT>> fetch(std::uint64_t since = 0) {
+      ensureSet();
+      auto scan = adopt(scanFactory_(since));
       scans_.push_back(scan);
       return scan;
     }
@@ -124,6 +131,8 @@ namespace waos::observable {
     }
 
     std::shared_ptr<Observable<EntryT>> peekLive() const { return live_; }
+
+    void bind() { ensureSet(); }
 
   private:
     void ensureSet() {

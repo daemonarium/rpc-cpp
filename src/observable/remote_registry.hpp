@@ -90,13 +90,14 @@ namespace waos::observable {
         obs->withFlags(waos::stream_flags::observe);
         return std::static_pointer_cast<Observable<BinaryEntry>>(obs);
       };
-      auto scanFactory = [this, function_id, tup]() {
+      auto scanFactory = [this, function_id, tup](std::uint64_t since) {
         auto obs = std::apply(
           [&](auto const&... a) {
             return std::make_shared<Live>(mux_, function_id, a...);
           },
           tup);
         obs->withFlags(waos::stream_flags::none);
+        obs->withSince(since);
         return std::static_pointer_cast<Observable<BinaryEntry>>(obs);
       };
 

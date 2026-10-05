@@ -420,6 +420,39 @@ int main() {
     expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
   };
 
+  "RemoteReference.fetch while live starts a second scan"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RemoteRegistry registry(mux);
+    waos::db_scan_query q;
+    auto ref = registry.getOrCreate(kDbStartScan, q);
+    auto& live = ref->observable();
+    auto c1 = std::make_shared<RecordingConsumer>();
+    live.subscribe(c1);
+    expect(eq(client.starts.size(), std::size_t{1}));
+    auto scan = ref->fetch();
+    expect(scan.get() != ref->peekLive().get());
+    auto c2 = std::make_shared<RecordingConsumer>();
+    scan->subscribe(c2);
+    expect(eq(client.starts.size(), std::size_t{2}));
+    expect(eq(client.starts[1].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
+    expect(ref->stream().get() == ref->peekLive().get());
+  };
+
+  "RemoteReference.stream since without live forwards since"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RemoteRegistry registry(mux);
+    waos::db_scan_query q;
+    auto ref = registry.getOrCreate(kDbStartScan, q);
+    auto scan = ref->stream(5);
+    auto c = std::make_shared<RecordingConsumer>();
+    scan->subscribe(c);
+    expect(eq(client.starts.size(), std::size_t{1}));
+    expect(eq(client.starts[0].handle.since_timestamp, std::uint64_t{5}));
+    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
+  };
+
   "RemoteReference.hold is a no-op drop in direct mode"_test = [] {
     MockClient client;
     StreamMultiplexer mux(client, 1, 1);
