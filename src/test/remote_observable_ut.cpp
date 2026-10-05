@@ -162,6 +162,7 @@ int main() {
     expect(eq(client.starts[0].handle.pid, std::uint64_t{1}));
     expect(eq(client.starts[0].handle.socket, std::uint32_t{2}));
     expect(eq(client.starts[0].handle.since_timestamp, std::uint64_t{0}));
+    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
     expect(eq(obs.streamId(), std::uint64_t{1}));
     expect(obs.state() == ObservableState::loading);
   };

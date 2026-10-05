@@ -253,6 +253,7 @@ int main() {
     expect(eq(client.starts[0].handle.pid, std::uint64_t{9}));
     expect(eq(client.starts[0].handle.socket, std::uint32_t{4}));
     expect(eq(client.starts[0].handle.since_timestamp, std::uint64_t{42}));
+    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
     expect(eq(client.starts[0].query.limit, std::uint64_t{10}));
     expect(client.starts[0].query.reverse);
   };
@@ -280,6 +281,7 @@ int main() {
     expect(eq(starter.starts[0].handle.pid, std::uint64_t{7}));
     expect(eq(starter.starts[0].handle.socket, std::uint32_t{3}));
     expect(eq(starter.starts[0].handle.since_timestamp, std::uint64_t{5}));
+    expect(eq(starter.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
     expect(eq(channel.cancels.size(), std::size_t{0}));
 
     channel.inject(waos::stream_item{id, bin("k"), bin("v"), 1});
@@ -302,5 +304,14 @@ int main() {
     mux.cancelStream(id);
     expect(eq(client.cancels.size(), std::size_t{1}));
     expect(eq(client.cancels[0].stream_id, id));
+  };
+
+  "createStream observe flag is copied onto stream_handle"_test = [] {
+    MockClient client;
+    StreamMultiplexer mux(client, 1, 1);
+    RecordingReceiver r;
+    mux.createStream(kDbStartScan, 0, waos::stream_flags::observe, &r, waos::db_scan_query{});
+    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::observe)));
+    expect(eq(client.starts[0].handle.since_timestamp, std::uint64_t{0}));
   };
 }

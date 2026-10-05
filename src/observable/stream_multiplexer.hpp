@@ -61,12 +61,24 @@ namespace waos::observable {
         std::uint64_t since_ts,
         StreamReceiver* r,
         Args&&... args) {
+      return createStream(
+        function_id, since_ts, waos::stream_flags::none, r, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    std::uint64_t createStream(
+        std::uint64_t function_id,
+        std::uint64_t since_ts,
+        waos::stream_flags flags,
+        StreamReceiver* r,
+        Args&&... args) {
       std::uint64_t id = nextId_++;
       waos::stream_handle h;
       h.pid = returnPid_;
       h.socket = returnSocket_;
       h.stream_id = id;
       h.since_timestamp = since_ts;
+      h.flags = static_cast<std::uint8_t>(flags);
       if(r) receivers_[id] = r;
       starter_.template call<void>(function_id, h, std::forward<Args>(args)...);
       return id;

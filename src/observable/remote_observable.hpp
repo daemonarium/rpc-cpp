@@ -19,6 +19,7 @@ namespace waos::observable {
   class RemoteObservable : public Observable<BinaryEntry>, public StreamReceiver {
     StreamMultiplexer<Starter, Channel>& mux_;
     std::uint64_t functionId_ = 0;
+    waos::stream_flags flags_ = waos::stream_flags::none;
     std::tuple<Args...> args_;
     std::uint64_t streamId_ = 0;
 
@@ -30,6 +31,11 @@ namespace waos::observable {
       : mux_(mux)
       , functionId_(function_id)
       , args_(std::move(args)...) {}
+
+    RemoteObservable& withFlags(waos::stream_flags flags) {
+      flags_ = flags;
+      return *this;
+    }
 
     ~RemoteObservable() override {
       stopStream();
@@ -60,7 +66,7 @@ namespace waos::observable {
     void onStart() override {
       streamId_ = std::apply(
         [&](auto&... a) {
-          return mux_.createStream(functionId_, maxTs(), this, a...);
+          return mux_.createStream(functionId_, maxTs(), flags_, this, a...);
         },
         args_);
     }

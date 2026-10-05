@@ -310,6 +310,25 @@ namespace serialization {
         });
       }
 
+      // Registers every public instance method of ApiClass, in declaration order.
+      // Ignored members and the destructor are skipped.
+      template <typename ApiClass>
+      void register_object_methods(ApiClass& object) {
+        [:serialization::expand(std::meta::members_of(^^ApiClass, std::meta::access_context::unchecked())):] >> [&]<std::meta::info member> {
+          if constexpr (std::meta::is_function(member)
+                     && !std::meta::is_static_member(member)
+                     && std::meta::is_public(member)
+                     && std::meta::has_identifier(member)
+                     && !is_member_ignored(member)) {
+            constexpr std::string_view name = std::meta::identifier_of(member);
+            if constexpr (name.find('~') == std::string_view::npos) {
+              constexpr auto member_func_ptr = &[:member:];
+              register_object_method(object, member_func_ptr);
+            }
+          }
+        };
+      }
+
       // Overload for const member functions
       template <typename Class, typename Rt, typename... Args>
       void register_singleton_method(Rt(Class::*callable)(Args...) const) {

@@ -28,11 +28,15 @@ namespace waos {
   // socket_opened is not part of this lifecycle. It is the ack that a
   // private channel is bound (open_socket). It has no stream_id.
   //
-  // since_timestamp (on stream_handle) is the observation watermark:
-  //   * 0  = full stream: current state in range (every key once).
+  // since_timestamp (on stream_handle) is the catch-up window, not lifecycle:
+  //   * 0  = full snapshot: current state in range (every key once).
   //   * >0 = delta: entries with timestamp > since_timestamp. Tombstones are
   //          empty values and mean delete. Applies to any observation-based
   //          stream, not only DB scan.
+  //
+  // Lifecycle is stream_handle.flags (see stream_flags). Catch-up and
+  // observe-vs-scan are orthogonal: an observe stream can still request a
+  // delta window, and a scan can request a full snapshot.
   //
   // Delta safety is observer-specific. The DB gate-checks
   //   since_timestamp >= max_elided_tombstone_ts
@@ -51,8 +55,12 @@ namespace waos {
   // Empty value = tombstone = delete. Client applies last-ts-wins.
   // ---------------------------------------------------------------------------
 
-  enum class stream_mode : std::uint8_t {
-    scan = 0,
+  // Lifecycle bits on stream_handle.flags. Orthogonal to since_timestamp.
+  // none    = finite scan: producer ends after catch-up (stream_done closes).
+  // observe = live stream: stream_done is end of catch-up; the stream stays
+  //           open until stream_cancel / error.
+  enum class stream_flags : std::uint8_t {
+    none = 0,
     observe = 1,
   };
 
@@ -65,8 +73,10 @@ namespace waos {
     std::uint64_t pid = 0;
     std::uint32_t socket = 0;
     std::uint64_t stream_id = 0;
-    // 0 = full stream; >0 = delta (changes with timestamp > since_timestamp).
+    // Catch-up window. 0 = full snapshot; >0 = delta (ts > since_timestamp).
     std::uint64_t since_timestamp = 0;
+    // Lifecycle (stream_flags). Not a catch-up window.
+    std::uint8_t flags = 0;
   };
 
   // Ack that the private channel is bound (open_socket). Not per-stream.

@@ -169,6 +169,7 @@ int main() {
     obs->subscribe(c2);
     expect(eq(client.starts.size(), std::size_t{2}));
     expect(eq(client.starts[0].handle.since_timestamp, std::uint64_t{0}));
+    expect(eq(client.starts[0].handle.flags, static_cast<std::uint8_t>(waos::stream_flags::none)));
     expect(eq(client.starts[1].handle.since_timestamp, std::uint64_t{42}));
     expect(client.starts[1].handle.since_timestamp != std::uint64_t{0});
   };

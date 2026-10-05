@@ -382,10 +382,14 @@ is the reconnect watermark.
 
 When the upstream (transport) reconnects, `RemoteObservable`
 resumes the stream with
-`stream_handle.since_timestamp = maxTs`. This is a delta request:
-"give me entries with `ts > maxTs`". If the server can satisfy it
-(its elision floor and retention floor are below `maxTs`), the
-client gets a small delta and catches up cheaply.
+`stream_handle.since_timestamp = maxTs`. This is a **catch-up
+window**, not a lifecycle switch: "give me entries with `ts > maxTs`".
+Whether the stream stays open after that catch-up is
+`stream_handle.flags` (`stream_flags::observe` keeps the stream
+alive; `stream_flags::none` is a finite scan that ends on
+`stream_done`). If the server can satisfy the delta (its elision
+floor and retention floor are below `maxTs`), the client gets a
+small delta and catches up cheaply.
 
 ### Full rescan fallback
 
@@ -394,7 +398,8 @@ If the server cannot satisfy the delta (its
 it sends `stream_reset` and restarts as a full scan. The Observable
 transitions `ready → reloading` (section 10). This is the
 `since_timestamp` safety contract already implemented in the DB; the
-Observable library consumes it.
+Observable library consumes it. `flags` does not participate in that
+gate — it only says whether the producer stays up after catch-up.
 
 ### Per-key monotonicity, not global
 
