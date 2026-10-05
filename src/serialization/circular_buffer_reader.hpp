@@ -83,6 +83,10 @@ namespace serialization {
         value = byte ^ 0x80;
       }
 
+      void read_raw(void* dest, std::size_t size) {
+        read_bytes(dest, size);
+      }
+
       void read_f64(double& value) {
         std::uint64_t v;
         read_bytes(&v, sizeof(v));

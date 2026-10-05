@@ -85,7 +85,7 @@ int main() {
     MockChannel ch;
     std::vector<binary> received;
     SocketMux<MockChannel>::Options opt;
-    opt.on_data = [&](std::uint64_t, const binary& p) { received.push_back(p); };
+    opt.on_data = [&](std::uint32_t, const binary& p) { received.push_back(p); };
     SocketMux<MockChannel> mux(ch, opt);
     mux.open_socket(7);
     expect(ch.count<waos::mux_socket_open>() == 1_ul);
@@ -128,7 +128,7 @@ int main() {
     ch.emit(waos::mux_socket_window{1, 10});
     auto first = mux.send_data(1, bytes(40));
     expect(first->state == serialization::promise_state::resolved);
-    expect(mux.remaining(1) == 0_ul);
+    expect(mux.remaining(1) == 0_u);
     auto second = mux.send_data(1, bytes(4));
     expect(second->state == serialization::promise_state::pending);
     expect(ch.count<waos::mux_socket_data>() == 1_ul);
@@ -165,7 +165,7 @@ int main() {
     ch.writable = true;
     mux.on_writable();
     std::size_t a = 0, b = 0;
-    std::vector<std::uint64_t> ids;
+    std::vector<std::uint32_t> ids;
     for(const auto& msg : ch.sent) {
       if(const auto* d = std::get_if<waos::mux_socket_data>(&msg)) {
         ids.push_back(d->socket_id);
@@ -187,9 +187,9 @@ int main() {
     expect(blocked->state == serialization::promise_state::pending);
     mux.close_socket(3);
     expect(blocked->state == serialization::promise_state::resolved);
-    expect(mux.remaining(3) == 0_ul);
+    expect(mux.remaining(3) == 0_u);
     mux.open_socket(3);
-    expect(mux.remaining(3) == 0_ul);
+    expect(mux.remaining(3) == 0_u);
   };
 
   "unknown socket_id is a no-op"_test = [] {
@@ -223,5 +223,31 @@ int main() {
     expect(ch.count<waos::mux_socket_window>() == 0_ul);
     mux.set_paused(1, false);
     expect(ch.count<waos::mux_socket_window>() == 1_ul);
+  };
+
+  "open carries kind ref_id cookie"_test = [] {
+    MockChannel ch;
+    SocketMux<MockChannel> mux(ch);
+    mux.open_socket(4, waos::mux_kind_pipe, 0, 99);
+    const auto* opened = ch.last<waos::mux_socket_open>();
+    expect(opened != nullptr);
+    expect(opened->socket_id == 4_u);
+    expect(opened->kind == waos::mux_kind_pipe);
+    expect(opened->cookie == 99_u);
+  };
+
+  "duplex both sides grant and send"_test = [] {
+    MockChannel ch;
+    std::vector<binary> received;
+    SocketMux<MockChannel>::Options opt;
+    opt.on_data = [&](std::uint32_t, const binary& p) { received.push_back(p); };
+    SocketMux<MockChannel> mux(ch, opt);
+    mux.open_socket(1, waos::mux_kind_pipe, 0, 1);
+    mux.grant_window(1, 64);
+    ch.emit(waos::mux_socket_window{1, 64});
+    auto p = mux.send_data(1, bytes(4, 8));
+    expect(p->state == serialization::promise_state::resolved);
+    ch.emit(waos::mux_socket_data{1, bytes(3, 9)});
+    expect(received.size() == 1_ul);
   };
 }

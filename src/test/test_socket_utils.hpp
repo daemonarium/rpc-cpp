@@ -59,3 +59,7 @@ struct socket_loopback_pair {
     transfer(s1, s0);
   }
 };
+
+inline std::size_t socket_output_readable(std::uint32_t sock) {
+  return circular_buffer_readable_bytes(&get_socket_info(sock)->output_buffer);
+}

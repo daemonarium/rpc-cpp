@@ -15,29 +15,36 @@
 
 namespace waos {
 
+  constexpr std::uint8_t mux_kind_observe = 0;
+  constexpr std::uint8_t mux_kind_fetch = 1;
+  constexpr std::uint8_t mux_kind_pipe = 2;
+
   struct [[=serialization::message()]] mux_socket_open {
-    std::uint64_t socket_id = 0;
+    std::uint32_t socket_id = 0;
+    std::uint8_t kind = 0;
+    std::uint32_t ref_id = 0;
+    std::uint32_t cookie = 0;
   };
 
   struct [[=serialization::message()]] mux_socket_data {
-    std::uint64_t socket_id = 0;
+    std::uint32_t socket_id = 0;
     binary payload;
   };
 
   struct [[=serialization::message()]] mux_socket_close {
-    std::uint64_t socket_id = 0;
+    std::uint32_t socket_id = 0;
   };
 
   struct [[=serialization::message()]] mux_socket_window {
-    std::uint64_t socket_id = 0;
-    std::uint64_t add_bytes = 0;
+    std::uint32_t socket_id = 0;
+    std::uint32_t add_bytes = 0;
   };
 
 }
 
 namespace waos::observable {
 
-  constexpr std::uint64_t mux_socket_rpc_reserved = 0;
+  constexpr std::uint32_t mux_socket_rpc_reserved = 0;
   constexpr std::size_t default_mux_window = 16384;
   constexpr std::size_t default_mux_quantum = 4096;
 
@@ -60,9 +67,9 @@ namespace waos::observable {
     struct Options {
       std::size_t quantum = default_mux_quantum;
       std::size_t default_window = default_mux_window;
-      std::function<void(std::uint64_t, const binary&)> on_data;
-      std::function<void(std::uint64_t)> on_open;
-      std::function<void(std::uint64_t)> on_close;
+      std::function<void(std::uint32_t, const binary&)> on_data;
+      std::function<void(std::uint32_t, std::uint8_t, std::uint32_t, std::uint32_t)> on_open;
+      std::function<void(std::uint32_t)> on_close;
     };
 
     explicit SocketMux(Channel& channel, Options options = {})
@@ -74,7 +81,7 @@ namespace waos::observable {
       , on_close_(std::move(options.on_close)) {
       channel_.template on_message<waos::mux_socket_open>(
         std::function<void(waos::mux_socket_open&)>([this](waos::mux_socket_open& msg) {
-          on_peer_open(msg.socket_id);
+          on_peer_open(msg.socket_id, msg.kind, msg.ref_id, msg.cookie);
         })
       );
       channel_.template on_message<waos::mux_socket_data>(
@@ -96,15 +103,21 @@ namespace waos::observable {
 
     std::size_t default_window_bytes() const { return default_window_; }
 
-    void open_socket(std::uint64_t socket_id) {
+    void open_socket(
+      std::uint32_t socket_id,
+      std::uint8_t kind = 0,
+      std::uint32_t ref_id = 0,
+      std::uint32_t cookie = 0
+    ) {
       if(socket_id == mux_socket_rpc_reserved) return;
       Slot& slot = ensure(socket_id);
       if(slot.opened_local) return;
       slot.opened_local = true;
-      channel_.template send_message<waos::mux_socket_open>(waos::mux_socket_open{socket_id});
+      channel_.template send_message<waos::mux_socket_open>(
+        waos::mux_socket_open{socket_id, kind, ref_id, cookie});
     }
 
-    void close_socket(std::uint64_t socket_id) {
+    void close_socket(std::uint32_t socket_id) {
       auto it = slots_.find(socket_id);
       if(it == slots_.end()) return;
       finish_slot(it->second);
@@ -113,7 +126,7 @@ namespace waos::observable {
     }
 
     std::shared_ptr<serialization::promise<void>> send_data(
-      std::uint64_t socket_id,
+      std::uint32_t socket_id,
       binary payload
     ) {
       auto it = slots_.find(socket_id);
@@ -126,7 +139,7 @@ namespace waos::observable {
       return p;
     }
 
-    void grant_window(std::uint64_t socket_id, std::uint64_t add_bytes) {
+    void grant_window(std::uint32_t socket_id, std::uint32_t add_bytes) {
       auto it = slots_.find(socket_id);
       if(it == slots_.end() || add_bytes == 0) return;
       if(it->second.grant_paused) {
@@ -137,32 +150,32 @@ namespace waos::observable {
         waos::mux_socket_window{socket_id, add_bytes});
     }
 
-    void set_paused(std::uint64_t socket_id, bool paused) {
+    void set_paused(std::uint32_t socket_id, bool paused) {
       auto it = slots_.find(socket_id);
       if(it == slots_.end()) return;
       it->second.grant_paused = paused;
       if(!paused && it->second.unacked > 0) {
-        std::uint64_t n = it->second.unacked;
+        std::uint32_t n = it->second.unacked;
         it->second.unacked = 0;
         grant_window(socket_id, n);
       }
     }
 
-    std::uint64_t remaining(std::uint64_t socket_id) const {
+    std::uint32_t remaining(std::uint32_t socket_id) const {
       auto it = slots_.find(socket_id);
       return it == slots_.end() ? 0 : it->second.remaining;
     }
 
-    std::uint64_t sent(std::uint64_t socket_id) const {
+    std::uint32_t sent(std::uint32_t socket_id) const {
       auto it = slots_.find(socket_id);
       return it == slots_.end() ? 0 : it->second.sent;
     }
 
-    bool has_socket(std::uint64_t socket_id) const {
+    bool has_socket(std::uint32_t socket_id) const {
       return slots_.find(socket_id) != slots_.end();
     }
 
-    std::size_t outbound_count(std::uint64_t socket_id) const {
+    std::size_t outbound_count(std::uint32_t socket_id) const {
       auto it = slots_.find(socket_id);
       return it == slots_.end() ? 0 : it->second.outbound.size();
     }
@@ -176,34 +189,34 @@ namespace waos::observable {
     };
 
     struct Slot {
-      std::uint64_t id = 0;
-      std::uint64_t remaining = 0;
-      std::uint64_t sent = 0;
+      std::uint32_t id = 0;
+      std::uint32_t remaining = 0;
+      std::uint32_t sent = 0;
       std::deque<Outbound> outbound;
       std::size_t deficit = 0;
       std::size_t starved = 0;
       bool opened_local = false;
       bool grant_paused = false;
-      std::uint64_t unacked = 0;
+      std::uint32_t unacked = 0;
     };
 
     Channel& channel_;
     std::size_t quantum_ = default_mux_quantum;
     std::size_t default_window_ = default_mux_window;
-    std::function<void(std::uint64_t, const binary&)> on_data_;
-    std::function<void(std::uint64_t)> on_open_;
-    std::function<void(std::uint64_t)> on_close_;
-    std::map<std::uint64_t, Slot> slots_;
+    std::function<void(std::uint32_t, const binary&)> on_data_;
+    std::function<void(std::uint32_t, std::uint8_t, std::uint32_t, std::uint32_t)> on_open_;
+    std::function<void(std::uint32_t)> on_close_;
+    std::map<std::uint32_t, Slot> slots_;
     bool pumping_ = false;
 
-    static std::uint64_t sat_add(std::uint64_t a, std::uint64_t b) {
-      if(b > std::numeric_limits<std::uint64_t>::max() - a) {
-        return std::numeric_limits<std::uint64_t>::max();
+    static std::uint32_t sat_add(std::uint32_t a, std::uint32_t b) {
+      if(b > std::numeric_limits<std::uint32_t>::max() - a) {
+        return std::numeric_limits<std::uint32_t>::max();
       }
       return a + b;
     }
 
-    Slot& ensure(std::uint64_t id) {
+    Slot& ensure(std::uint32_t id) {
       auto it = slots_.find(id);
       if(it != slots_.end()) return it->second;
       Slot slot;
@@ -212,18 +225,23 @@ namespace waos::observable {
       return inserted.first->second;
     }
 
-    void on_peer_open(std::uint64_t id) {
+    void on_peer_open(
+      std::uint32_t id,
+      std::uint8_t kind,
+      std::uint32_t ref_id,
+      std::uint32_t cookie
+    ) {
       if(id == mux_socket_rpc_reserved) return;
       ensure(id);
-      if(on_open_) on_open_(id);
+      if(on_open_) on_open_(id, kind, ref_id, cookie);
     }
 
-    void on_peer_data(std::uint64_t id, const binary& payload) {
+    void on_peer_data(std::uint32_t id, const binary& payload) {
       if(slots_.find(id) == slots_.end()) return;
       if(on_data_) on_data_(id, payload);
     }
 
-    void on_peer_close(std::uint64_t id) {
+    void on_peer_close(std::uint32_t id) {
       auto it = slots_.find(id);
       if(it == slots_.end()) return;
       finish_slot(it->second);
@@ -231,7 +249,7 @@ namespace waos::observable {
       if(on_close_) on_close_(id);
     }
 
-    void on_peer_window(std::uint64_t id, std::uint64_t add_bytes) {
+    void on_peer_window(std::uint32_t id, std::uint32_t add_bytes) {
       auto it = slots_.find(id);
       if(it == slots_.end()) return;
       it->second.remaining = sat_add(it->second.remaining, add_bytes);
@@ -250,7 +268,7 @@ namespace waos::observable {
     }
 
     void consume(Slot& slot, std::size_t size) {
-      const std::uint64_t n = static_cast<std::uint64_t>(size);
+      const std::uint32_t n = static_cast<std::uint32_t>(size);
       slot.sent = sat_add(slot.sent, n);
       if(slot.remaining > n) slot.remaining -= n;
       else slot.remaining = 0;
@@ -258,7 +276,7 @@ namespace waos::observable {
 
     Slot* pick_ready() {
       Slot* chosen = nullptr;
-      std::uint64_t chosen_id = 0;
+      std::uint32_t chosen_id = 0;
       std::size_t best_starved = 0;
       std::vector<Slot*> ready;
       for(auto& [id, slot] : slots_) {
