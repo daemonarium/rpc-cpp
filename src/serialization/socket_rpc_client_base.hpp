@@ -72,6 +72,7 @@ namespace serialization {
       using reader_type = typename Codec::reader_type;
       using writer_type = typename Codec::writer_type;
       using transport_type = Transport;
+      using channel_type = socket_message_framing<Codec, Transport>;
 
       explicit socket_rpc_client_base(Transport transport)
         : channel_(std::move(transport)) {

@@ -155,6 +155,14 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(socket_mux_ut src/test/socket_mux_ut.cpp)
+  target_include_directories(socket_mux_ut PRIVATE src)
+  target_link_libraries(socket_mux_ut PRIVATE Boost::ut)
+  set_target_properties(socket_mux_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+  add_test(NAME socket_mux_ut COMMAND socket_mux_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+
   add_executable(stream_publisher_ut src/test/stream_publisher_ut.cpp)
   target_include_directories(stream_publisher_ut PRIVATE src)
   target_link_libraries(stream_publisher_ut PRIVATE Boost::ut)
