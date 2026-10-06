@@ -1,4 +1,5 @@
 #include <boost/ut.hpp>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -6,6 +7,8 @@
 
 // type_registry.hpp must be included before rpc.hpp to resolve the circular dependency
 #include "serialization/type_registry.hpp"
+#include "serialization/type_description.hpp"
+#include "serialization/type_registry_blob.hpp"
 #include "serialization/stream_writer.hpp"
 #include "serialization/stream_reader.hpp"
 #include "serialization/serialize.hpp"
@@ -139,5 +142,24 @@ int main() {
     rpc_error err{0};
     auto result = roundtrip(err);
     expect(result.request_id == 0_u);
+  };
+
+  "typed shared_ptr harvest sets pointer item"_test = [] {
+    type_registry registry(true);
+    std::shared_ptr<test_point> ptr;
+    auto type = type_description::create(ptr, registry);
+    expect(type->getKind() == type_description::Kind::Pointer);
+    expect(type->getName() == std::string("test_point*"));
+    expect(type->getItem() != nullptr);
+    expect(type->getItem()->getName() == std::string("test_point"));
+
+    const std::string blob = serialize_type_registry_blob(registry);
+    type_registry out(false);
+    deserialize_type_registry_blob(blob, out);
+    auto restored = out.get_type("test_point*");
+    expect(restored != nullptr);
+    expect(restored->getKind() == type_description::Kind::Pointer);
+    expect(restored->getItem() != nullptr);
+    expect(restored->getItem()->getName() == std::string("test_point"));
   };
 }

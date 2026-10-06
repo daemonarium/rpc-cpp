@@ -125,7 +125,9 @@ namespace serialization {
   template <class T, Writer W>
   requires(SharedPointer<T> && Writer<W>)
   void serialize(W& writer, const T& value) {
-    writer.write_pointer(value, writer.template make_shared_write_later<typename T::element_type>(value));
+    using Pointee = std::remove_cv_t<typename T::element_type>;
+    std::shared_ptr<Pointee> mutablePtr = std::const_pointer_cast<Pointee>(value);
+    writer.write_pointer(mutablePtr, writer.template make_shared_write_later<Pointee>(mutablePtr));
   }
 
   template <class T, Writer W>

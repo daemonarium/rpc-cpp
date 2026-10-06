@@ -265,6 +265,8 @@ Codec to policy łącząca format (reader/writer) z dispatchem (tabele typów, h
 | `[[=serialization::dynamic()]]` | typ dynamiczny (hierarchia annotation) |
 | `[[=serialization::read()]]` | adnotacja członu (kierunek odczytu; rozszerzalne) |
 
+`type_description::create(std::shared_ptr<T>)` harvests a typed `Pointer` named `T*` with `item = T` (cv-qualified pointees are stripped). The singleton builtin `pointer` (type index 14) remains for untyped slots. Codec wire format is unchanged: polymorphic bodies still use `register_dynamic_type` / `write_typed`. `serialize(shared_ptr<const T>)` const_pointer_casts so writers can erase to `shared_ptr<void>`. `register_recursive(shared_ptr<T>)` descends into `T`.
+
 ---
 
 ## Format flat — skrót

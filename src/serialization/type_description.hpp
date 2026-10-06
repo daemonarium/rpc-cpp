@@ -125,8 +125,16 @@ namespace serialization {
       }
 
       const std::shared_ptr<type_description> getItem() const {
+        if(static_cast<Kind>(kind) == Kind::Pointer) {
+          return item;
+        }
         if(static_cast<Kind>(kind) == Kind::Array) {
-          return members[0].type;
+          if(item) {
+            return item;
+          }
+          if(!members.empty()) {
+            return members[0].type;
+          }
         }
         return nullptr;
       }
@@ -414,7 +422,19 @@ namespace serialization {
     template <typename T, TypeRegistry R>
     requires(SharedPointer<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
-      return registry.get_type(14);  // polymorphic pointer
+      using Pointee = std::remove_cv_t<typename T::element_type>;
+      auto pointeeType = create(Pointee{}, registry);
+      std::string name = std::string(pointeeType->getName()) + "*";
+      auto existing = registry.get_type(name);
+      if(existing) return existing;
+      auto ptrType = std::make_shared<type_description>(
+        std::move(name),
+        type_description::Kind::Pointer,
+        std::shared_ptr<type_description>(pointeeType)
+      );
+      ptrType->type_index_ = std::type_index(typeid(T));
+      registry.register_type(ptrType);
+      return ptrType;
     }
 
     template <std::meta::info member, TypeRegistry R>

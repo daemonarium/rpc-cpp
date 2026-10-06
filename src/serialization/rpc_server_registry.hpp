@@ -72,7 +72,8 @@ namespace serialization {
       template <typename T, typename Srv>
       requires(SharedPointer<T>)
       static void register_recursive(T value, Srv& server) {
-        /// ignore
+        using Pointee = std::remove_cv_t<typename T::element_type>;
+        register_recursive(Pointee{}, server);
       }
 
       template <std::meta::info member, typename Srv>

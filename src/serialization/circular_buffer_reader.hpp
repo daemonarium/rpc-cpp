@@ -149,10 +149,9 @@ namespace serialization {
         read_length(length);
         for(std::size_t i = 0; i < length; ++i) {
           typename Map::key_type key{};
-          typename Map::mapped_type item{};
           key_cb(*this, key);
-          val_cb(*this, item);
-          map.insert(std::make_pair(std::move(key), std::move(item)));
+          auto inserted = map.emplace(std::move(key), typename Map::mapped_type{}).first;
+          val_cb(*this, inserted->second);
         }
       }
 
