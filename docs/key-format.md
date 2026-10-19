@@ -1,5 +1,8 @@
 # Format key (sortable binary keys)
 
+Wire specification: [daemonarium/rpc-protocol v0.1.0](https://github.com/daemonarium/rpc-protocol/tree/v0.1.0). This file is the implementation's view.
+
+
 Format zoptymalizowany pod **porządek binarny** (`memcmp`) kluczy DB: długości i county **nie** siedzą między polami danych. Lexykografia stringów poza scope (osobne kodowanie jako binary, jeśli potrzeba).
 
 Status: **zaimplementowany** (`key_encoder` / `key_decoder`, `key_stream_*`, `key_circular_buffer_*`). Checklist: [key-todo.md](key-todo.md).

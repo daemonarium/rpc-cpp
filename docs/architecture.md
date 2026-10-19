@@ -1,5 +1,8 @@
 # cpp-rpc
 
+Wire specification: [daemonarium/rpc-protocol v0.1.0](https://github.com/daemonarium/rpc-protocol/tree/v0.1.0). This file is the implementation's view.
+
+
 Biblioteka C++ (C++26 reflection / `std::meta`) łącząca:
 
 1. **serializację / deserializację** struktur użytkownika do różnych backendów zapisu i odczytu,

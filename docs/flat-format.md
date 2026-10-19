@@ -1,5 +1,8 @@
 # Format flat (indexed / in-place)
 
+Wire specification: [daemonarium/rpc-protocol v0.1.0](https://github.com/daemonarium/rpc-protocol/tree/v0.1.0). This file is the implementation's view.
+
+
 **Domyślny** wire procesów / RPC (`flat_socket_rpc_*`, `FlatSocketMessageChannel`). Compressed pozostaje [legacy opt-in](compressed-format.md).
 
 Format zoptymalizowany pod **szybki odczyt** (w tym odczyt w miejscu i dostęp swobodny do pól) oraz **wydajny jednoprzebiegowy zapis**. Współdzieli kontrakt `Writer` / `Reader` oraz `serialize` / `deserialize` z formatem skompresowanym; inny jest układ bajtów i znaczenie `begin_frame` / `end_frame` / `save_offset`.

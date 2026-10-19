@@ -1,5 +1,8 @@
 # Observable library — requirements
 
+Wire specification: [daemonarium/rpc-protocol v0.1.0](https://github.com/daemonarium/rpc-protocol/tree/v0.1.0). This file is the implementation's view.
+
+
 Status: draft v0.1. Target: a small FRP-style library for sorted
 `key -> value` maps with per-entry timestamps, designed for one-way
 `server -> client` synchronization over the existing flat RPC / stream

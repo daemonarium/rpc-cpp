@@ -1,5 +1,8 @@
 # Observable library — implementation (core slice)
 
+Wire specification: [daemonarium/rpc-protocol v0.1.0](https://github.com/daemonarium/rpc-protocol/tree/v0.1.0). This file is the implementation's view.
+
+
 Status: wire-bridge slice. This document records implementation
 decisions for `cpp-rpc/src/observable/` and the test suite.
 Requirements live in `observable-requirements.md`.

@@ -1,5 +1,8 @@
 # Format skompresowany (stream / circular)
 
+Wire specification: [daemonarium/rpc-protocol v0.1.0](https://github.com/daemonarium/rpc-protocol/tree/v0.1.0). This file is the implementation's view.
+
+
 > **Legacy opt-in** — to **nie** jest domyślny wire procesów / RPC.
 > Domyślny RPC: [flat-format.md](flat-format.md) (`flat_socket_rpc_*`). Opt-in: C++ `WAOS_MODULE_RPC_COMPRESSED` / `compressed_socket_rpc_*`, TS `{ format: 'compressed' }`.
 

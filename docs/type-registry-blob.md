@@ -1,5 +1,8 @@
 # Type registry blob (rpc_description)
 
+Wire specification: [daemonarium/rpc-protocol v0.1.0](https://github.com/daemonarium/rpc-protocol/tree/v0.1.0). This file is the implementation's view.
+
+
 Serialized `type_registry` / `TypeRegistry` as returned by WASM `rpc_description` and stored as `registry.<pid>.<sock>.bin`.
 
 ## Layout

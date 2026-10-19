@@ -1,5 +1,8 @@
 # rpc-cpp
 
+Wire specification: [daemonarium/rpc-protocol v0.1.0](https://github.com/daemonarium/rpc-protocol/tree/v0.1.0).
+
+
 A C++26 serialization and RPC library. `[[=...]]` annotations drive a serializer, and an RPC layer runs over a socket framing layer. Three binary formats (flat, compressed, key) share the same `serialize` / `deserialize` core.
 
 The CMake target is `cpp_rpc`. This repository is `daemonarium/rpc-cpp`.
