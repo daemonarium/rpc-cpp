@@ -1,10 +1,20 @@
 cmake_minimum_required(VERSION 3.17)
-project(cppSerialization)
+project(cpp_rpc LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 26)
-
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+add_library(cpp_rpc STATIC
+  src/io/circular_buffer.c
+  src/socket/socket.c
+)
+target_include_directories(cpp_rpc PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+# Tests, examples, and Boost.UT stay out of a consumer add_subdirectory().
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 include(FetchContent)
 FetchContent_Declare(ut
   GIT_REPOSITORY https://github.com/boost-ext/ut.git
@@ -13,19 +23,16 @@ FetchContent_Declare(ut
 FetchContent_MakeAvailable(ut)
 
 include_directories(src)
-aux_source_directory(src/serialization SERIALIZATION_FILES)
-aux_source_directory(src/io IO_FILES)
-aux_source_directory(src/socket SOCKET_FILES)
-set(SOCKET_HANDLERS_FILES ${CMAKE_SOURCE_DIR}/cpp-rpc/src/utils/socket_handlers.cpp)
-
-set(WASI_STUBS_FILES ${CMAKE_SOURCE_DIR}/cpp-rpc/src/utils/wasi_stubs.cpp)
-set(MODULE_FILES ${CMAKE_SOURCE_DIR}/cpp-rpc/src/utils/module.cpp)
+set(SOCKET_HANDLERS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/socket_handlers.cpp)
+set(WASI_STUBS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/wasi_stubs.cpp)
+set(MODULE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/utils/module.cpp)
 
 file(GLOB EXAMPLE_FILES "src/examples/*.cpp")
 
 foreach(EXAMPLE_FILE ${EXAMPLE_FILES})
   get_filename_component(EXAMPLE_NAME ${EXAMPLE_FILE} NAME_WE)
-  add_executable(${EXAMPLE_NAME} ${EXAMPLE_FILE} ${SERIALIZATION_FILES} ${IO_FILES})
+  add_executable(${EXAMPLE_NAME} ${EXAMPLE_FILE})
+  target_link_libraries(${EXAMPLE_NAME} PRIVATE cpp_rpc)
   if(WASM)
     target_compile_options(${EXAMPLE_NAME} PRIVATE
       -fwasm-exceptions
@@ -47,8 +54,9 @@ if(WASM)
   foreach(EXAMPLE_MODULE_FILE ${EXAMPLE_MODULES_FILES})
     get_filename_component(EXAMPLE_MODULE_NAME ${EXAMPLE_MODULE_FILE} NAME_WE)
     
-    add_executable(${EXAMPLE_MODULE_NAME} ${EXAMPLE_MODULE_FILE} ${SERIALIZATION_FILES} ${IO_FILES} ${SOCKET_FILES}
+    add_executable(${EXAMPLE_MODULE_NAME} ${EXAMPLE_MODULE_FILE}
                    ${WASI_STUBS_FILES} ${MODULE_FILES} ${SOCKET_HANDLERS_FILES})
+    target_link_libraries(${EXAMPLE_MODULE_NAME} PRIVATE cpp_rpc)
     target_compile_options(${EXAMPLE_MODULE_NAME} PRIVATE
       -fwasm-exceptions
     )
@@ -63,7 +71,7 @@ if(WASM)
       -sTOTAL_STACK=20000
       -sEXPORTED_FUNCTIONS=_rpc_description,_start,_malloc,_waos_socket_data,_waos_socket_output_drain
       -sERROR_ON_UNDEFINED_SYMBOLS=0
-      -Wl,--allow-undefined-file=${CMAKE_SOURCE_DIR}/cpp-rpc/src/examples/modules/allowed-undefined-symbols.syms
+      -Wl,--allow-undefined-file=${CMAKE_CURRENT_SOURCE_DIR}/src/examples/modules/allowed-undefined-symbols.syms
     )
 
     target_include_directories(${EXAMPLE_MODULE_NAME} PRIVATE include src)
@@ -109,55 +117,55 @@ if(NOT WASM)
 
   # --- Existing tests ---
 
-  add_executable(io_circular_buffer_ut src/test/io_circular_buffer_ut.cpp ${IO_FILES})
+  add_executable(io_circular_buffer_ut src/test/io_circular_buffer_ut.cpp)
   target_include_directories(io_circular_buffer_ut PRIVATE src)
-  target_link_libraries(io_circular_buffer_ut PRIVATE Boost::ut)
+  target_link_libraries(io_circular_buffer_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(io_circular_buffer_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(socket_loopback_ut src/test/socket_loopback_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(socket_loopback_ut src/test/socket_loopback_ut.cpp)
   target_include_directories(socket_loopback_ut PRIVATE src)
-  target_link_libraries(socket_loopback_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(socket_loopback_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(socket_loopback_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   # --- Serialization tests (stream) ---
 
-  add_executable(serialization_stream_ut src/test/serialization_stream_ut.cpp ${IO_FILES})
+  add_executable(serialization_stream_ut src/test/serialization_stream_ut.cpp)
   target_include_directories(serialization_stream_ut PRIVATE src)
-  target_link_libraries(serialization_stream_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_stream_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_stream_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   # --- Serialization tests (flat) ---
 
-  add_executable(serialization_flat_ut src/test/serialization_flat_ut.cpp ${IO_FILES})
+  add_executable(serialization_flat_ut src/test/serialization_flat_ut.cpp)
   target_include_directories(serialization_flat_ut PRIVATE src)
-  target_link_libraries(serialization_flat_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_flat_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_flat_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   add_executable(observable_ut src/test/observable_ut.cpp)
   target_include_directories(observable_ut PRIVATE src)
-  target_link_libraries(observable_ut PRIVATE Boost::ut)
+  target_link_libraries(observable_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(observable_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   add_executable(stream_multiplexer_ut src/test/stream_multiplexer_ut.cpp)
   target_include_directories(stream_multiplexer_ut PRIVATE src)
-  target_link_libraries(stream_multiplexer_ut PRIVATE Boost::ut)
+  target_link_libraries(stream_multiplexer_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(stream_multiplexer_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   add_executable(socket_mux_ut src/test/socket_mux_ut.cpp)
   target_include_directories(socket_mux_ut PRIVATE src)
-  target_link_libraries(socket_mux_ut PRIVATE Boost::ut)
+  target_link_libraries(socket_mux_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(socket_mux_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
@@ -165,135 +173,135 @@ if(NOT WASM)
 
   add_executable(stream_publisher_ut src/test/stream_publisher_ut.cpp)
   target_include_directories(stream_publisher_ut PRIVATE src)
-  target_link_libraries(stream_publisher_ut PRIVATE Boost::ut)
+  target_link_libraries(stream_publisher_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(stream_publisher_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(remote_observable_ut src/test/remote_observable_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(remote_observable_ut src/test/remote_observable_ut.cpp)
   target_include_directories(remote_observable_ut PRIVATE src)
-  target_link_libraries(remote_observable_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(remote_observable_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(remote_observable_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   add_executable(remote_registry_ut src/test/remote_registry_ut.cpp)
   target_include_directories(remote_registry_ut PRIVATE src)
-  target_link_libraries(remote_registry_ut PRIVATE Boost::ut)
+  target_link_libraries(remote_registry_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(remote_registry_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(high_level_observable_ut src/test/high_level_observable_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(high_level_observable_ut src/test/high_level_observable_ut.cpp)
   target_include_directories(high_level_observable_ut PRIVATE src)
-  target_link_libraries(high_level_observable_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(high_level_observable_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(high_level_observable_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(dbg_forward_integration_ut src/test/dbg_forward_integration_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(dbg_forward_integration_ut src/test/dbg_forward_integration_ut.cpp)
   target_include_directories(dbg_forward_integration_ut PRIVATE src)
-  target_link_libraries(dbg_forward_integration_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(dbg_forward_integration_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(dbg_forward_integration_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(serialization_flat_circular_ut src/test/serialization_flat_circular_ut.cpp ${IO_FILES})
+  add_executable(serialization_flat_circular_ut src/test/serialization_flat_circular_ut.cpp)
   target_include_directories(serialization_flat_circular_ut PRIVATE src)
-  target_link_libraries(serialization_flat_circular_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_flat_circular_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_flat_circular_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(serialization_flat_circular_writer_ut src/test/serialization_flat_circular_writer_ut.cpp ${IO_FILES})
+  add_executable(serialization_flat_circular_writer_ut src/test/serialization_flat_circular_writer_ut.cpp)
   target_include_directories(serialization_flat_circular_writer_ut PRIVATE src)
-  target_link_libraries(serialization_flat_circular_writer_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_flat_circular_writer_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_flat_circular_writer_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(serialization_flat_generated_ut src/test/serialization_flat_generated_ut.cpp ${IO_FILES})
+  add_executable(serialization_flat_generated_ut src/test/serialization_flat_generated_ut.cpp)
   target_include_directories(serialization_flat_generated_ut PRIVATE src)
-  target_link_libraries(serialization_flat_generated_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_flat_generated_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_flat_generated_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(serialization_flat_exception_ut src/test/serialization_flat_exception_ut.cpp ${IO_FILES})
+  add_executable(serialization_flat_exception_ut src/test/serialization_flat_exception_ut.cpp)
   target_include_directories(serialization_flat_exception_ut PRIVATE src)
-  target_link_libraries(serialization_flat_exception_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_flat_exception_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_flat_exception_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_polymorphism_ut src/test/flat_polymorphism_ut.cpp ${IO_FILES})
+  add_executable(flat_polymorphism_ut src/test/flat_polymorphism_ut.cpp)
   target_include_directories(flat_polymorphism_ut PRIVATE src)
-  target_link_libraries(flat_polymorphism_ut PRIVATE Boost::ut)
+  target_link_libraries(flat_polymorphism_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(flat_polymorphism_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_writer_reader_base_ut src/test/flat_writer_reader_base_ut.cpp ${IO_FILES})
+  add_executable(flat_writer_reader_base_ut src/test/flat_writer_reader_base_ut.cpp)
   target_include_directories(flat_writer_reader_base_ut PRIVATE src)
-  target_link_libraries(flat_writer_reader_base_ut PRIVATE Boost::ut)
+  target_link_libraries(flat_writer_reader_base_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(flat_writer_reader_base_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(serialization_compressed_generated_ut src/test/serialization_compressed_generated_ut.cpp ${IO_FILES})
+  add_executable(serialization_compressed_generated_ut src/test/serialization_compressed_generated_ut.cpp)
   target_include_directories(serialization_compressed_generated_ut PRIVATE src)
-  target_link_libraries(serialization_compressed_generated_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_compressed_generated_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_compressed_generated_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(compressed_codec_ut src/test/compressed_codec_ut.cpp ${IO_FILES})
+  add_executable(compressed_codec_ut src/test/compressed_codec_ut.cpp)
   target_include_directories(compressed_codec_ut PRIVATE src)
-  target_link_libraries(compressed_codec_ut PRIVATE Boost::ut)
+  target_link_libraries(compressed_codec_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(compressed_codec_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_materialized_codec_ut src/test/flat_materialized_codec_ut.cpp ${IO_FILES})
+  add_executable(flat_materialized_codec_ut src/test/flat_materialized_codec_ut.cpp)
   target_include_directories(flat_materialized_codec_ut PRIVATE src)
-  target_link_libraries(flat_materialized_codec_ut PRIVATE Boost::ut)
+  target_link_libraries(flat_materialized_codec_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(flat_materialized_codec_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_message_channel_ut src/test/flat_message_channel_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(flat_message_channel_ut src/test/flat_message_channel_ut.cpp)
   target_include_directories(flat_message_channel_ut PRIVATE src)
-  target_link_libraries(flat_message_channel_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(flat_message_channel_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(flat_message_channel_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_zero_copy_codec_ut src/test/flat_zero_copy_codec_ut.cpp ${IO_FILES})
+  add_executable(flat_zero_copy_codec_ut src/test/flat_zero_copy_codec_ut.cpp)
   target_include_directories(flat_zero_copy_codec_ut PRIVATE src)
-  target_link_libraries(flat_zero_copy_codec_ut PRIVATE Boost::ut)
+  target_link_libraries(flat_zero_copy_codec_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(flat_zero_copy_codec_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_zero_copy_message_channel_ut src/test/flat_zero_copy_message_channel_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(flat_zero_copy_message_channel_ut src/test/flat_zero_copy_message_channel_ut.cpp)
   target_include_directories(flat_zero_copy_message_channel_ut PRIVATE src)
-  target_link_libraries(flat_zero_copy_message_channel_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(flat_zero_copy_message_channel_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(flat_zero_copy_message_channel_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   # --- Serialization tests (key format) ---
 
-  add_executable(serialization_key_ut src/test/serialization_key_ut.cpp ${IO_FILES})
+  add_executable(serialization_key_ut src/test/serialization_key_ut.cpp)
   target_include_directories(serialization_key_ut PRIVATE src)
-  target_link_libraries(serialization_key_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_key_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_key_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(serialization_key_circular_ut src/test/serialization_key_circular_ut.cpp ${IO_FILES})
+  add_executable(serialization_key_circular_ut src/test/serialization_key_circular_ut.cpp)
   target_include_directories(serialization_key_circular_ut PRIVATE src)
-  target_link_libraries(serialization_key_circular_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_key_circular_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_key_circular_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
@@ -302,13 +310,15 @@ if(NOT WASM)
   # Usage: generate_serialization_tsv [out.tsv]
   #        generate_serialization_tsv --flat [out.tsv]
   # Note: cpp-rpc/src/test/serialization_reference.tsv is stale leftover — use ts-rpc/tests/ copies.
-  add_executable(generate_serialization_tsv src/test/generate_serialization_tsv.cpp ${IO_FILES})
+  add_executable(generate_serialization_tsv src/test/generate_serialization_tsv.cpp)
+  target_link_libraries(generate_serialization_tsv PRIVATE cpp_rpc)
   target_include_directories(generate_serialization_tsv PRIVATE src)
   set_target_properties(generate_serialization_tsv PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(generate_serialization_complex_tsv src/test/generate_serialization_complex_tsv.cpp ${IO_FILES})
+  add_executable(generate_serialization_complex_tsv src/test/generate_serialization_complex_tsv.cpp)
+  target_link_libraries(generate_serialization_complex_tsv PRIVATE cpp_rpc)
   target_include_directories(generate_serialization_complex_tsv PRIVATE src)
   set_target_properties(generate_serialization_complex_tsv PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
@@ -316,66 +326,66 @@ if(NOT WASM)
 
   # --- Serialization tests (circular_buffer) ---
 
-  add_executable(serialization_cb_ut src/test/serialization_cb_ut.cpp ${IO_FILES})
+  add_executable(serialization_cb_ut src/test/serialization_cb_ut.cpp)
   target_include_directories(serialization_cb_ut PRIVATE src)
-  target_link_libraries(serialization_cb_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_cb_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_cb_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   # --- Serialization types tests (custom structs, rpc messages) ---
 
-  add_executable(serialization_types_ut src/test/serialization_types_ut.cpp ${IO_FILES})
+  add_executable(serialization_types_ut src/test/serialization_types_ut.cpp)
   target_include_directories(serialization_types_ut PRIVATE src)
-  target_link_libraries(serialization_types_ut PRIVATE Boost::ut)
+  target_link_libraries(serialization_types_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(serialization_types_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(type_registry_blob_ut src/test/type_registry_blob_ut.cpp ${IO_FILES})
+  add_executable(type_registry_blob_ut src/test/type_registry_blob_ut.cpp)
   target_include_directories(type_registry_blob_ut PRIVATE src)
-  target_link_libraries(type_registry_blob_ut PRIVATE Boost::ut)
+  target_link_libraries(type_registry_blob_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(type_registry_blob_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   # --- Message channel tests ---
 
-  add_executable(message_channel_ut src/test/message_channel_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(message_channel_ut src/test/message_channel_ut.cpp)
   target_include_directories(message_channel_ut PRIVATE src)
-  target_link_libraries(message_channel_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(message_channel_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(message_channel_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   # --- RPC loopback tests (stream-based) ---
 
-  add_executable(rpc_loopback_ut src/test/rpc_loopback_ut.cpp ${IO_FILES})
+  add_executable(rpc_loopback_ut src/test/rpc_loopback_ut.cpp)
   target_include_directories(rpc_loopback_ut PRIVATE src)
-  target_link_libraries(rpc_loopback_ut PRIVATE Boost::ut)
+  target_link_libraries(rpc_loopback_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(rpc_loopback_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
   # --- Socket RPC tests ---
 
-  add_executable(socket_rpc_ut src/test/socket_rpc_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(socket_rpc_ut src/test/socket_rpc_ut.cpp)
   target_include_directories(socket_rpc_ut PRIVATE src)
-  target_link_libraries(socket_rpc_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(socket_rpc_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(socket_rpc_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_rpc_loopback_ut src/test/flat_rpc_loopback_ut.cpp ${IO_FILES})
+  add_executable(flat_rpc_loopback_ut src/test/flat_rpc_loopback_ut.cpp)
   target_include_directories(flat_rpc_loopback_ut PRIVATE src)
-  target_link_libraries(flat_rpc_loopback_ut PRIVATE Boost::ut)
+  target_link_libraries(flat_rpc_loopback_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(flat_rpc_loopback_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_socket_rpc_ut src/test/flat_socket_rpc_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(flat_socket_rpc_ut src/test/flat_socket_rpc_ut.cpp)
   target_include_directories(flat_socket_rpc_ut PRIVATE src)
-  target_link_libraries(flat_socket_rpc_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(flat_socket_rpc_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(flat_socket_rpc_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
@@ -383,17 +393,17 @@ if(NOT WASM)
   add_executable(flat_buffer_rpc_ut
     src/test/flat_buffer_rpc_ut.cpp
     src/native/native_process.cpp
-    ${IO_FILES}
+   
   )
   target_include_directories(flat_buffer_rpc_ut PRIVATE src)
-  target_link_libraries(flat_buffer_rpc_ut PRIVATE Boost::ut)
+  target_link_libraries(flat_buffer_rpc_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(flat_buffer_rpc_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
-  add_executable(flat_zero_copy_rpc_ut src/test/flat_zero_copy_rpc_ut.cpp ${IO_FILES} ${SOCKET_FILES})
+  add_executable(flat_zero_copy_rpc_ut src/test/flat_zero_copy_rpc_ut.cpp)
   target_include_directories(flat_zero_copy_rpc_ut PRIVATE src)
-  target_link_libraries(flat_zero_copy_rpc_ut PRIVATE Boost::ut socket_test_stub)
+  target_link_libraries(flat_zero_copy_rpc_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
   set_target_properties(flat_zero_copy_rpc_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
@@ -401,10 +411,10 @@ if(NOT WASM)
   add_executable(native_process_ut
     src/test/native_process_ut.cpp
     src/native/native_process.cpp
-    ${IO_FILES}
+   
   )
   target_include_directories(native_process_ut PRIVATE src)
-  target_link_libraries(native_process_ut PRIVATE Boost::ut)
+  target_link_libraries(native_process_ut PRIVATE Boost::ut cpp_rpc)
   set_target_properties(native_process_ut PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
@@ -448,4 +458,5 @@ if(NOT WASM)
   add_test(NAME flat_buffer_rpc_ut COMMAND flat_buffer_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME flat_zero_copy_rpc_ut COMMAND flat_zero_copy_rpc_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME native_process_ut COMMAND native_process_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+endif()
 endif()
