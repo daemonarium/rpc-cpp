@@ -64,6 +64,8 @@ deserialize(reader, hello);
 
 The long map of writers, readers, and RPC types is in [docs/architecture.md](docs/architecture.md).
 
+`register_recursive(shared_ptr<T>)` and `type_description::create(shared_ptr<T>)` descend into `T` unless `T` is abstract or derives from `ObservableBase`. In that case the pointer is registered as an opaque pointer and the pointee is not reflected. `Observable` is not a serialized value: a high-level observable method is `stream_handle` first and `void` on the wire.
+
 ## Formats
 
 - [Flat](docs/flat-format.md) is the default for processes and RPC.

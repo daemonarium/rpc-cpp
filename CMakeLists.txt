@@ -199,6 +199,13 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(abstract_pointer_ut src/test/abstract_pointer_ut.cpp)
+  target_include_directories(abstract_pointer_ut PRIVATE src)
+  target_link_libraries(abstract_pointer_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
+  set_target_properties(abstract_pointer_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   add_executable(dbg_forward_integration_ut src/test/dbg_forward_integration_ut.cpp)
   target_include_directories(dbg_forward_integration_ut PRIVATE src)
   target_link_libraries(dbg_forward_integration_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
@@ -428,6 +435,7 @@ if(NOT WASM)
   add_test(NAME remote_observable_ut COMMAND remote_observable_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME remote_registry_ut COMMAND remote_registry_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME high_level_observable_ut COMMAND high_level_observable_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
+  add_test(NAME abstract_pointer_ut COMMAND abstract_pointer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME dbg_forward_integration_ut COMMAND dbg_forward_integration_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME io_circular_buffer_ut COMMAND io_circular_buffer_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_test(NAME socket_loopback_ut COMMAND socket_loopback_ut WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
