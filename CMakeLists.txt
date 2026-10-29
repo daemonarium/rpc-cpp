@@ -199,6 +199,13 @@ if(NOT WASM)
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
   )
 
+  add_executable(abstract_pointer_ut src/test/abstract_pointer_ut.cpp)
+  target_include_directories(abstract_pointer_ut PRIVATE src)
+  target_link_libraries(abstract_pointer_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)
+  set_target_properties(abstract_pointer_ut PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+  )
+
   add_executable(dbg_forward_integration_ut src/test/dbg_forward_integration_ut.cpp)
   target_include_directories(dbg_forward_integration_ut PRIVATE src)
   target_link_libraries(dbg_forward_integration_ut PRIVATE Boost::ut cpp_rpc socket_test_stub)

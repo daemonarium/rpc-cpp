@@ -32,6 +32,7 @@ Requirements live in `observable-requirements.md`.
 | Registry ownership | Registry owns `RemoteObservable` across idle (no eviction in v1) | Destroy on last unsubscribe; weak_ptr | Resubscribe reuses `maxTs` / view → delta, not a full scan. |
 | DB start | Unchanged `start_scan` / `ensure_channel_` reuse by `(pid, socket)` | Per-stream sockets; muxer-owned bind | One-connection = dedicated `open_socket` socket. |
 | High-level observable methods | Annotation + `shared_ptr<Observable<BinaryEntry>>` return + no `stream_handle` param | Return-type-only; annotation-only; `Ref` as `Call` arg | Wire stays `stream_handle` first / void return. Framework attaches `StreamPublisher` (`observe` → live, `none` → `OneShotScanConsumer`). Low-level (`stream_handle` + `promise<void>`) stays. |
+| `register_recursive` and `Observable` | `Observable` pointee is opaque to the registry; `register_recursive` does not descend into it | Descend into `Observable` and reflect its fields | `Observable` is not serializable; its fields are libc++ internals (`std::function`, `std::exception_ptr`) that reflection with `unchecked()` cannot construct. The wire shape is `stream_handle` + void, owned by `register_high_level_observable_method`. |
 
 ## Architecture
 

@@ -8,6 +8,7 @@
 #include "annotations.hpp"
 #include "examples/structures/stream_protocol.hpp"
 #include "observable/observable.hpp"
+#include "observable/consumer_output.hpp"
 #include <functional>
 #include <vector>
 #include <set>
@@ -73,7 +74,13 @@ namespace serialization {
       requires(SharedPointer<T>)
       static void register_recursive(T value, Srv& server) {
         using Pointee = std::remove_cv_t<typename T::element_type>;
-        register_recursive(Pointee{}, server);
+        // Abstract and Observable pointees are not values on the wire.
+        // The call has to sit in the kept branch: a return in if constexpr
+        // does not discard the statements after it.
+        if constexpr (!std::is_abstract_v<Pointee>
+                    && !std::is_base_of_v<waos::observable::ObservableBase, Pointee>) {
+          register_recursive(Pointee{}, server);
+        }
       }
 
       template <std::meta::info member, typename Srv>
@@ -81,7 +88,9 @@ namespace serialization {
         [:serialization::expand(std::meta::parameters_of(member)):] >> [&]<auto param> {
           auto param_value = typename [:std::meta::type_of(param):]();
           register_recursive(param_value, server);
-        };            
+        };
+        if constexpr (!is_high_level_observable<member>()) {
+        // Wire shape of a high-level observable is stream_handle first, void return.
         constexpr std::meta::info return_type = std::meta::return_type_of(member);
         // Use display_string to check if it's a reference or void type
         constexpr std::string_view return_type_str = std::meta::display_string_of(return_type);
@@ -97,25 +106,30 @@ namespace serialization {
           auto return_value = typename [:referenced_type:]();
           auto depromisified_value = depromisify(return_value);
           register_recursive(depromisified_value, server);
-        } 
+        }
+        }
       }
 
       template <typename T, typename Srv>
       requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && !SimpleException<T>)
       static void register_recursive(T value, Srv& server) {
-        std::string_view name;
-        if constexpr (std::meta::has_identifier(^^T)) {
-          name = std::meta::identifier_of(^^T);
-        } else {
-          name = std::meta::display_string_of(^^T);
-        }   
+        // The call site must not value-initialize an abstract base. This
+        // branch covers a base reached another way, and stdlib types that
+        // have no identifier (their guts are not part of the RPC schema).
+        // The rest of the body must be in the kept branch: a return in
+        // if constexpr does not discard the statements after it.
+        if constexpr (!std::is_abstract_v<T> && std::meta::has_identifier(^^T)) {
+        std::string_view name = std::meta::identifier_of(^^T); 
         if(server.registered_types.find(std::string(name)) != server.registered_types.end()) return;
         server.registered_types.insert(std::string(name));
         server.debug("rpc registering type %s", std::string(name).c_str());
         server.debug_indent(1);
 
         [:expand(std::meta::bases_of(^^T, std::meta::access_context::unchecked())):] >> [&]<std::meta::info base> {
-          register_recursive(typename [:std::meta::type_of(base):](), server);
+          using BaseT = typename [:std::meta::type_of(base):];
+          if constexpr (!std::is_abstract_v<BaseT>) {
+            register_recursive(BaseT{}, server);
+          }
         };
 
         [:expand(std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<auto dm> {
@@ -239,6 +253,7 @@ namespace serialization {
           };
         }
         server.debug_indent(-1);
+        }
       }
 
       template <typename T, typename Srv>

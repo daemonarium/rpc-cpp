@@ -19,6 +19,9 @@
 
 #include "promise.hpp"
 #include "examples/structures/stream_protocol.hpp"
+#include "observable/consumer_output.hpp"
+
+#include <type_traits>
 
 namespace serialization {
 
@@ -423,8 +426,22 @@ namespace serialization {
     requires(SharedPointer<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
       using Pointee = std::remove_cv_t<typename T::element_type>;
-      auto pointeeType = create(Pointee{}, registry);
-      std::string name = std::string(pointeeType->getName()) + "*";
+      constexpr bool opaque = std::is_abstract_v<Pointee>
+        || std::is_base_of_v<waos::observable::ObservableBase, Pointee>;
+      std::shared_ptr<type_description> pointeeType;
+      std::string name;
+      if constexpr (!opaque) {
+        pointeeType = create(Pointee{}, registry);
+        name = std::string(pointeeType->getName()) + "*";
+      } else {
+        std::string_view pointeeName;
+        if constexpr (std::meta::has_identifier(^^Pointee)) {
+          pointeeName = std::meta::identifier_of(^^Pointee);
+        } else {
+          pointeeName = std::meta::display_string_of(^^Pointee);
+        }
+        name = std::string(pointeeName) + "*";
+      }
       auto existing = registry.get_type(name);
       if(existing) return existing;
       auto ptrType = std::make_shared<type_description>(
@@ -478,12 +495,10 @@ namespace serialization {
     template <typename T, TypeRegistry R>
     requires(UserDefinedType<T> && !String<T> && !ContainerButNotString<T> && !Map<T> && !Pointer<T> && !SimpleException<T>)
     std::shared_ptr<type_description> static create(T value, R& registry) {
-      std::string_view name;
-      if constexpr (std::meta::has_identifier(^^T)) {
-        name = std::meta::identifier_of(^^T);
+      if constexpr (std::is_abstract_v<T> || !std::meta::has_identifier(^^T)) {
+        return nullptr;
       } else {
-        name = std::meta::display_string_of(^^T);
-      }      
+      std::string_view name = std::meta::identifier_of(^^T);
       std::shared_ptr<type_description> type = registry.get_type(name);
       if(type) return type;
       type = std::make_shared<type_description>(std::string(name), 
@@ -502,18 +517,25 @@ namespace serialization {
       //describe_members<T, T, R>(type, value, registry); 
 
       [:expand(std::meta::bases_of(^^T, std::meta::access_context::unchecked())):] >> [&]<std::meta::info base> {
-        type->bases.push_back(create(typename [:std::meta::type_of(base):](), registry));
+        using BaseT = typename [:std::meta::type_of(base):];
+        if constexpr (!std::is_abstract_v<BaseT>) {
+          auto baseType = create(BaseT{}, registry);
+          if(baseType) type->bases.push_back(baseType);
+        }
       };
 
       [:expand(std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked())):] >> [&]<auto dm> {        
         if constexpr(!is_member_ignored(dm)) {  
-          std::string_view memberName = std::meta::identifier_of(dm);
-          type_description::member m = type_description::member(
-            std::string(memberName),
-            create(value.[:dm:], registry),
-            annotations_of<dm, member_annotation_ptr>()
-          );
-          type->members.push_back(m);    
+          auto memberType = create(value.[:dm:], registry);
+          if(memberType) {
+            std::string_view memberName = std::meta::identifier_of(dm);
+            type_description::member m = type_description::member(
+              std::string(memberName),
+              memberType,
+              annotations_of<dm, member_annotation_ptr>()
+            );
+            type->members.push_back(m);
+          }
         }
       };
 
@@ -592,6 +614,7 @@ namespace serialization {
       }
   
       return type;
+      }
     }
 
     template <typename T, TypeRegistry R>
