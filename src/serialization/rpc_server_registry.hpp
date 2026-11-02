@@ -6,7 +6,7 @@
 #include "type_concepts.hpp"
 #include "promise.hpp"
 #include "annotations.hpp"
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 #include "observable/observable.hpp"
 #include "observable/consumer_output.hpp"
 #include <functional>

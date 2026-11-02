@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 #include "observable/observable.hpp"
 #include "observable/one_shot_scan_consumer.hpp"
 #include "observable/stream_relay_consumer.hpp"

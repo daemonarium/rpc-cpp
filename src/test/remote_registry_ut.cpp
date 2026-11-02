@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "examples/structures/db.hpp"
+#include "test/scan_query_fixture.hpp"
 #include "observable/remote_observable.hpp"
 #include "observable/remote_registry.hpp"
 #include "observable/stream_multiplexer.hpp"

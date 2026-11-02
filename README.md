@@ -7,6 +7,8 @@ A C++26 serialization and RPC library. `[[=...]]` annotations drive a serializer
 
 The CMake target is `cpp_rpc`. This repository is `daemonarium/rpc-cpp`.
 
+Process contracts (kernel, database, filesystem, debug store, recorder) are not part of this library. They live in [daemonarium/contracts](https://github.com/daemonarium/contracts). The observation stream messages (`stream_handle`, `stream_item`, and the rest) stay here, in `src/serialization/stream_protocol.hpp`.
+
 ## What you need
 
 Stock Clang cannot compile this library. P2996 reflection lives in the [reflection-toolchain](https://github.com/daemonarium/reflection-toolchain) sysroot.

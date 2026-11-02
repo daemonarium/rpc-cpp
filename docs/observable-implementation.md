@@ -227,8 +227,9 @@ shared_ptr attach lifetime.
 `high_level_observable_ut`: observe vs oneshot dispatch, cancel,
 RemoteReference dedup (one upstream RPC).
 
-`dbg_forward_integration_ut`: mock db `table` → `DbgForward::forward`
-→ client; live put; unsubscribe cancel; resubscribe `since = maxTs`.
+`dbg_forward` and its integration test live in daemonarium/contracts.
+The test covers mock db `table` → `DbgForward::forward` → client,
+live put, unsubscribe cancel, and resubscribe `since = maxTs`.
 
 `remote_observable_ut`: subscribe/`onStart`, wire signals, last
 unsubscribe cancel, resubscribe `since = maxTs`, loopback

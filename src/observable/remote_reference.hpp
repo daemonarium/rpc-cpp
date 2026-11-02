@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 #include "observable/observable.hpp"
 #include "observable/stream_multiplexer.hpp"
 #include "observable/stream_receiver.hpp"

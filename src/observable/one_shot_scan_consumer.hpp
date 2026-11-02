@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 #include "observable/types.hpp"
 #include "serialization/promise.hpp"
 

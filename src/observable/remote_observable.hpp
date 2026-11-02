@@ -2,10 +2,10 @@
 
 #include <cstdint>
 #include <exception>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 
-#include "examples/structures/db.hpp"
 #include "observable/observable.hpp"
 #include "observable/stream_multiplexer.hpp"
 #include "observable/stream_receiver.hpp"
@@ -70,7 +70,7 @@ namespace waos::observable {
     }
 
     void onStreamError(waos::stream_error& m) override {
-      onError(std::make_exception_ptr(waos::db_io_error(m.message)));
+      onError(std::make_exception_ptr(std::runtime_error(m.message)));
     }
 
   protected:

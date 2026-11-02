@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 #include "serialization/annotations.hpp"
 #include "serialization/promise.hpp"
 

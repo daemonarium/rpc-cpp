@@ -7,7 +7,7 @@
 #include <unordered_set>
 #include <utility>
 
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 #include "observable/stream_receiver.hpp"
 
 namespace waos::observable {

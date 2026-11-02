@@ -8,7 +8,7 @@
 #include "serialize.hpp"
 #include "promise.hpp"
 #include "rpc.hpp"
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 #include "observable/observable.hpp"
 #include "observable/stream_publisher.hpp"
 #include <memory>

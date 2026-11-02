@@ -1,6 +1,6 @@
 #pragma once
 
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 
 namespace waos::observable {
 

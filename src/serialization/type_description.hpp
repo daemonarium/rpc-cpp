@@ -18,7 +18,7 @@
 #include "type_name.hpp"
 
 #include "promise.hpp"
-#include "examples/structures/stream_protocol.hpp"
+#include "serialization/stream_protocol.hpp"
 #include "observable/consumer_output.hpp"
 
 #include <type_traits>

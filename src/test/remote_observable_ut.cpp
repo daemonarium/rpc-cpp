@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-#include "examples/structures/db.hpp"
+#include "test/scan_query_fixture.hpp"
 #include "observable/remote_observable.hpp"
 #include "observable/remote_registry.hpp"
 #include "observable/stream_multiplexer.hpp"
@@ -232,7 +232,7 @@ int main() {
     expect(eq(obs.getEntries().size(), std::size_t{1}));
     try {
       std::rethrow_exception(obs.lastError());
-    } catch(const waos::db_io_error& e) {
+    } catch(const std::runtime_error& e) {
       expect(std::string(e.what()) == std::string("wire boom"));
     } catch(...) {
       expect(false);
